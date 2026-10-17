@@ -1,4 +1,4 @@
-#define MyAppName "NetworkMonitor"
+﻿#define MyAppName "NetworkMonitor"
 #define MyAppExeName "NetworkMonitor.exe"
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
@@ -26,7 +26,6 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
