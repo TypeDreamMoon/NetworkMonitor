@@ -74,12 +74,15 @@ public sealed class DonutChart : UserControl
 
         if (_slices.Count == 1)
         {
-            _canvas.Children.Add(new Ellipse
+            var outer = new Ellipse
             {
                 Width = radius * 2,
                 Height = radius * 2,
                 Fill = new SolidColorBrush(_slices[0].Color),
-            });
+            };
+            Canvas.SetLeft(outer, center.X - radius);
+            Canvas.SetTop(outer, center.Y - radius);
+            _canvas.Children.Add(outer);
             var hole = new Ellipse
             {
                 Width = inner * 2,
