@@ -41,7 +41,16 @@ public sealed partial class MainWindow : Window
     private bool _syncingAutoUpdate;
     private bool _dragging;
     private bool _pendingTrafficPage;
-    private bool _onTrafficPage;
+    private bool _syncingRefresh;
+    private PageMode _page = PageMode.Home;
+    private PageMode _previousPage = PageMode.Home;
+
+    private enum PageMode
+    {
+        Home,
+        Traffic,
+        Settings,
+    }
     private int _dragStartX;
     private int _dragStartY;
     private int _windowStartX;
@@ -59,7 +68,7 @@ public sealed partial class MainWindow : Window
             Native.SetDarkBorder(this);
             PreventMaximize();
 
-            if (_pendingTrafficPage) SetPage(true);
+            if (_pendingTrafficPage) Navigate(PageMode.Traffic);
         };
 
         AppWindow.Changed += (_, args) =>
@@ -97,9 +106,22 @@ public sealed partial class MainWindow : Window
         AutoUpdateSwitch.IsOn = _settings.AutoCheckUpdates;
         _syncingAutoUpdate = false;
 
+        _syncingRefresh = true;
+        RefreshCombo.Items.Clear();
+        foreach (int seconds in new[] { 1, 2, 5 })
+            RefreshCombo.Items.Add(new ComboBoxItem { Content = $"{seconds} 秒", Tag = seconds });
+        RefreshCombo.SelectedIndex = _settings.RefreshIntervalSeconds switch
+        {
+            2 => 1,
+            5 => 2,
+            _ => 0,
+        };
+        _syncingRefresh = false;
+
         App.Instance.ProxyTraffic.SnapshotUpdated += OnProxySnapshot;
 
         TrafficPanel.Attach(App.Instance.ProxyTraffic);
+        SetRefreshInterval(_settings.RefreshIntervalSeconds);
         _homeTrafficTimer.Tick += async (_, _) => await RefreshHomeTrafficAsync();
         _homeTrafficTimer.Start();
         _ = RefreshHomeTrafficAsync();
@@ -402,6 +424,8 @@ public sealed partial class MainWindow : Window
 
     private void ShowTrafficPage_Click(object sender, RoutedEventArgs e) => ShowTrafficTab();
 
+    private void Settings_Click(object sender, RoutedEventArgs e) => Navigate(PageMode.Settings);
+
     public void ShowTrafficTab()
     {
         if (!Root.IsLoaded)
@@ -410,35 +434,62 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        SetPage(true);
+        Navigate(PageMode.Traffic);
     }
 
-    private void Back_Click(object sender, RoutedEventArgs e) => SetPage(false);
+    private void Back_Click(object sender, RoutedEventArgs e) =>
+        Navigate(_previousPage == PageMode.Traffic ? PageMode.Traffic : PageMode.Home);
 
-    private void SetPage(bool traffic)
+    private void Navigate(PageMode page)
     {
         _pendingTrafficPage = false;
-        _onTrafficPage = traffic;
 
-        HomeScroll.Visibility = traffic ? Visibility.Collapsed : Visibility.Visible;
-        TrafficScroll.Visibility = traffic ? Visibility.Visible : Visibility.Collapsed;
-        BackButton.Visibility = traffic ? Visibility.Visible : Visibility.Collapsed;
-        TrafficButton.Visibility = traffic ? Visibility.Collapsed : Visibility.Visible;
+        if (page != _page) _previousPage = _page;
+        _page = page;
 
-        if (traffic)
+        HomeScroll.Visibility = page == PageMode.Home ? Visibility.Visible : Visibility.Collapsed;
+        TrafficScroll.Visibility = page == PageMode.Traffic ? Visibility.Visible : Visibility.Collapsed;
+        SettingsScroll.Visibility = page == PageMode.Settings ? Visibility.Visible : Visibility.Collapsed;
+
+        BackButton.Visibility = page == PageMode.Home ? Visibility.Collapsed : Visibility.Visible;
+        TrafficButton.Visibility = page == PageMode.Home ? Visibility.Visible : Visibility.Collapsed;
+        SettingsButton.Visibility = page == PageMode.Settings ? Visibility.Collapsed : Visibility.Visible;
+
+        switch (page)
         {
-            TrafficScroll.ChangeView(null, 0, null);
-            _ = TrafficPanel.RefreshAsync();
+            case PageMode.Traffic:
+                TrafficScroll.ChangeView(null, 0, null);
+                _ = TrafficPanel.RefreshAsync();
+                break;
+            case PageMode.Settings:
+                SettingsScroll.ChangeView(null, 0, null);
+                break;
+            default:
+                _ = RefreshHomeTrafficAsync();
+                break;
         }
-        else
-        {
-            _ = RefreshHomeTrafficAsync();
-        }
+    }
+
+    private void RefreshCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingRefresh || RefreshCombo.SelectedItem is not ComboBoxItem item) return;
+        if (item.Tag is not int seconds) return;
+
+        _settings.RefreshIntervalSeconds = seconds;
+        _settings.Save();
+        ((App)Application.Current).ApplyRefreshInterval(seconds);
+    }
+
+    public void SetRefreshInterval(int seconds)
+    {
+        seconds = Math.Clamp(seconds, 1, 10);
+        _homeTrafficTimer.Interval = TimeSpan.FromSeconds(seconds);
+        TrafficPanel.SetRefreshInterval(seconds);
     }
 
     private async Task RefreshHomeTrafficAsync()
     {
-        if (_onTrafficPage) return;
+        if (_page != PageMode.Home) return;
 
         try
         {

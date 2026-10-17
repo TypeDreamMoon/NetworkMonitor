@@ -35,70 +35,9 @@
                 </Button>
 
                 <Button x:Name="SettingsButton" Style="{StaticResource TitleIconButton}" Margin="8,0,0,0"
-                        ToolTipService.ToolTip="设置">
+                        ToolTipService.ToolTip="设置" Click="Settings_Click">
                     <Image Source="ms-appx:///Assets/Icons/settings_93A2B8.svg" Width="13" Height="13" />
-                    <Button.Flyout>
-                        <Flyout Placement="BottomEdgeAlignedLeft">
-                            <ScrollViewer MaxHeight="640" VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Disabled">
-                            <StackPanel Width="330" Spacing="6">
-                                <TextBlock Text="显示" FontSize="12" FontWeight="SemiBold"
-                                           Foreground="{StaticResource TextMutedBrush}" Margin="4,0,0,2" />
-                                <toolkit:SettingsCard Header="桌面悬浮窗" Description="可拖动的小窗，双击打开主界面">
-                                    <ToggleSwitch x:Name="FloatingSwitch" OnContent="" OffContent=""
-                                                  Toggled="FloatingSwitch_Toggled" />
-                                </toolkit:SettingsCard>
-                                <toolkit:SettingsCard Header="任务栏显示" Description="停靠在通知区域左侧，失败时自动回退悬浮">
-                                    <ToggleSwitch x:Name="TaskbarSwitch" OnContent="" OffContent=""
-                                                  Toggled="TaskbarSwitch_Toggled" />
-                                </toolkit:SettingsCard>
-                                <TextBlock Text="系统" FontSize="12" FontWeight="SemiBold"
-                                           Foreground="{StaticResource TextMutedBrush}" Margin="4,8,0,2" />
-                                <toolkit:SettingsCard Header="开机自启" Description="登录 Windows 后自动在托盘运行">
-                                    <ToggleSwitch x:Name="StartupSwitch" OnContent="" OffContent=""
-                                                  Toggled="StartupSwitch_Toggled" />
-                                </toolkit:SettingsCard>
-                                <toolkit:SettingsCard Header="版本" Description="检查并安装新版本">
-                                    <StackPanel Spacing="6" Width="190">
-                                        <TextBlock x:Name="VersionText" Style="{StaticResource MutedText}" TextWrapping="Wrap" />
-                                        <TextBlock x:Name="UpdateStatusText" Style="{StaticResource MutedText}" TextWrapping="Wrap" />
-                                        <Button Content="检查更新" Click="CheckUpdate_Click" />
-                                        <ToggleSwitch x:Name="AutoUpdateSwitch" Header="自动检查更新"
-                                                      OnContent="" OffContent="" Toggled="AutoUpdate_Toggled" />
-                                    </StackPanel>
-                                </toolkit:SettingsCard>
-                                <TextBlock Text="统计" FontSize="12" FontWeight="SemiBold"
-                                           Foreground="{StaticResource TextMutedBrush}" Margin="4,8,0,2" />
-                                <toolkit:SettingsCard Header="统计网卡" Description="选择参与网速统计的网卡">
-                                    <ComboBox x:Name="IfaceCombo" Width="190" Height="32" FontSize="12"
-                                              SelectionChanged="IfaceCombo_SelectionChanged" />
-                                </toolkit:SettingsCard>
-                                <toolkit:SettingsCard Header="统计信息">
-                                    <TextBlock x:Name="FootNote" Style="{StaticResource MutedText}"
-                                               TextWrapping="Wrap" Width="190" />
-                                </toolkit:SettingsCard>
 
-                                <TextBlock Text="流量来源" FontSize="12" FontWeight="SemiBold"
-                                           Foreground="{StaticResource TextMutedBrush}" Margin="4,8,0,2" />
-                                <toolkit:SettingsCard Header="控制器" Description="FlClash / Clash Verge 的 External controller">
-                                    <StackPanel Spacing="6" Width="190">
-                                        <TextBlock x:Name="ProxyStatusText" Text="检测中…" Style="{StaticResource MutedText}"
-                                                   TextWrapping="Wrap" />
-                                        <TextBox x:Name="ProxyControllerBox" PlaceholderText="127.0.0.1:9090" FontSize="12" />
-                                        <PasswordBox x:Name="ProxySecretBox" PlaceholderText="secret（可留空）" FontSize="12" />
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <Button Content="保存" Click="ProxySave_Click" />
-                                            <Button Content="重新检测" Click="ProxyRecheck_Click" />
-                                        </StackPanel>
-                                    </StackPanel>
-                                </toolkit:SettingsCard>
-                                <toolkit:SettingsCard Header="数据目录" Description="流量台账与设置文件">
-                                    <Button Content="打开" Click="OpenDataFolder_Click" />
-                                </toolkit:SettingsCard>
-                            </StackPanel>
-                            </ScrollViewer>
-                        </Flyout>
-                    </Button.Flyout>
                 </Button>
                 <Button x:Name="TrafficButton" Style="{StaticResource TitleIconButton}"
                         ToolTipService.ToolTip="应用流量（FlClash）" Click="Traffic_Click">
@@ -266,6 +205,77 @@
         <ScrollViewer x:Name="TrafficScroll" Grid.Row="1" Visibility="Collapsed"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <controls:TrafficView x:Name="TrafficPanel" Margin="18,2,18,14" />
+        </ScrollViewer>
+
+
+        <ScrollViewer x:Name="SettingsScroll" Grid.Row="1" Visibility="Collapsed"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="18,0,18,18" Spacing="10">
+                <StackPanel Orientation="Horizontal" Spacing="7" Margin="2,2,0,0">
+                    <Image Source="ms-appx:///Assets/Icons/settings_93A2B8.svg" Width="16" Height="16" />
+                    <TextBlock Text="设置" FontSize="18" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}" />
+                </StackPanel>
+
+                                <TextBlock Text="显示" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextMutedBrush}" Margin="4,0,0,2" />
+                                <toolkit:SettingsCard Header="桌面悬浮窗" Description="可拖动的小窗，双击打开主界面">
+                                    <ToggleSwitch x:Name="FloatingSwitch" OnContent="" OffContent=""
+                                                  Toggled="FloatingSwitch_Toggled" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="任务栏显示" Description="停靠在通知区域左侧，失败时自动回退悬浮">
+                                    <ToggleSwitch x:Name="TaskbarSwitch" OnContent="" OffContent=""
+                                                  Toggled="TaskbarSwitch_Toggled" />
+                                </toolkit:SettingsCard>
+                                <TextBlock Text="系统" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextMutedBrush}" Margin="4,8,0,2" />
+                                <toolkit:SettingsCard Header="开机自启" Description="登录 Windows 后自动在托盘运行">
+                                    <ToggleSwitch x:Name="StartupSwitch" OnContent="" OffContent=""
+                                                  Toggled="StartupSwitch_Toggled" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="版本" Description="检查并安装新版本">
+                                    <StackPanel Spacing="6" Width="190">
+                                        <TextBlock x:Name="VersionText" Style="{StaticResource MutedText}" TextWrapping="Wrap" />
+                                        <TextBlock x:Name="UpdateStatusText" Style="{StaticResource MutedText}" TextWrapping="Wrap" />
+                                        <Button Content="检查更新" Click="CheckUpdate_Click" />
+                                        <ToggleSwitch x:Name="AutoUpdateSwitch" Header="自动检查更新"
+                                                      OnContent="" OffContent="" Toggled="AutoUpdate_Toggled" />
+                                    </StackPanel>
+                                </toolkit:SettingsCard>
+                                <TextBlock Text="统计" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextMutedBrush}" Margin="4,8,0,2" />
+                                <toolkit:SettingsCard Header="刷新速度" Description="网速与应用流量的更新频率">
+                                    <ComboBox x:Name="RefreshCombo" Width="190" Height="32" FontSize="12"
+                                              SelectionChanged="RefreshCombo_SelectionChanged" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="统计网卡" Description="选择参与网速统计的网卡">
+                                    <ComboBox x:Name="IfaceCombo" Width="190" Height="32" FontSize="12"
+                                              SelectionChanged="IfaceCombo_SelectionChanged" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="统计信息">
+                                    <TextBlock x:Name="FootNote" Style="{StaticResource MutedText}"
+                                               TextWrapping="Wrap" Width="190" />
+                                </toolkit:SettingsCard>
+
+                                <TextBlock Text="流量来源" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextMutedBrush}" Margin="4,8,0,2" />
+                                <toolkit:SettingsCard Header="控制器" Description="FlClash / Clash Verge 的 External controller">
+                                    <StackPanel Spacing="6" Width="190">
+                                        <TextBlock x:Name="ProxyStatusText" Text="检测中…" Style="{StaticResource MutedText}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBox x:Name="ProxyControllerBox" PlaceholderText="127.0.0.1:9090" FontSize="12" />
+                                        <PasswordBox x:Name="ProxySecretBox" PlaceholderText="secret（可留空）" FontSize="12" />
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Button Content="保存" Click="ProxySave_Click" />
+                                            <Button Content="重新检测" Click="ProxyRecheck_Click" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="数据目录" Description="流量台账与设置文件">
+                                    <Button Content="打开" Click="OpenDataFolder_Click" />
+                                </toolkit:SettingsCard>
+                            
+            </StackPanel>
         </ScrollViewer>
 
         <!-- tray -->

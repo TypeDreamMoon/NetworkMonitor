@@ -160,8 +160,6 @@ public sealed class ProxyTrafficService : IDisposable
 
     private async Task LoopAsync(CancellationToken ct)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
-
         while (!ct.IsCancellationRequested)
         {
             try
@@ -180,7 +178,8 @@ public sealed class ProxyTrafficService : IDisposable
 
             try
             {
-                if (!await timer.WaitForNextTickAsync(ct)) break;
+                int seconds = Math.Clamp(_settings.RefreshIntervalSeconds, 1, 10);
+                await Task.Delay(TimeSpan.FromSeconds(seconds), ct);
             }
             catch (OperationCanceledException)
             {

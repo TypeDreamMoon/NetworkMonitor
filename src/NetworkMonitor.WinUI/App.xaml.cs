@@ -139,6 +139,12 @@ public partial class App : Application
 
     public void RefreshProxy() => _proxyTraffic?.RefreshEndpoint();
 
+    public void ApplyRefreshInterval(int seconds)
+    {
+        _monitor?.SetRefreshInterval(seconds);
+        _main?.SetRefreshInterval(seconds);
+    }
+
     public void ShowMain()
     {
         if (_main is null) return;

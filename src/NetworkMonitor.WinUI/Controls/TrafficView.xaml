@@ -2,7 +2,8 @@
     x:Class="NetworkMonitor.WinUI.Controls.TrafficView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls">
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
+    xmlns:controls="using:NetworkMonitor.WinUI.Controls">
 
     <StackPanel Spacing="10">
         <StackPanel Orientation="Horizontal" Spacing="7" Margin="2,2,0,0">
@@ -63,6 +64,23 @@
 
         <TextBlock x:Name="EmptyHint" Style="{StaticResource MutedText}" TextWrapping="Wrap"
                    Visibility="Collapsed" />
+
+        <Border x:Name="PieCard" Style="{StaticResource Card}" Visibility="Collapsed">
+            <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Image Source="ms-appx:///Assets/Icons/traffic_5B9DFF.svg" Width="13" Height="13" />
+                    <TextBlock Text="分类占比（实际流量）" Style="{StaticResource SectionTitle}" />
+                </StackPanel>
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <controls:DonutChart x:Name="CategoryPie" Width="132" Height="132" />
+                    <StackPanel x:Name="PieLegend" Grid.Column="1" Spacing="5" VerticalAlignment="Center" />
+                </Grid>
+            </StackPanel>
+        </Border>
 
         <StackPanel Orientation="Horizontal" Spacing="6" Margin="2,4,0,0">
             <Image Source="ms-appx:///Assets/Icons/traffic_5B9DFF.svg" Width="13" Height="13" />

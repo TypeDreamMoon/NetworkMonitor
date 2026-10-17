@@ -52,6 +52,12 @@ public sealed class MonitoringService : IDisposable
     public event Action<UsageReport>? UsageRefreshed;
     public event Action? InterfacesChanged;
 
+    public void SetRefreshInterval(int seconds)
+    {
+        int clamped = Math.Clamp(seconds, 1, 10);
+        _timer.Change(TimeSpan.FromSeconds(clamped), TimeSpan.FromSeconds(clamped));
+    }
+
     public void Initialize()
     {
         try
@@ -80,7 +86,8 @@ public sealed class MonitoringService : IDisposable
         SyncKeys();
         _lastInterfaceScan = DateTime.UtcNow;
         RefreshUsage();
-        _timer.Change(1000, 1000);
+        int interval = Math.Clamp(Settings.RefreshIntervalSeconds, 1, 10);
+        _timer.Change(TimeSpan.FromSeconds(interval), TimeSpan.FromSeconds(interval));
     }
 
     private void Tick()

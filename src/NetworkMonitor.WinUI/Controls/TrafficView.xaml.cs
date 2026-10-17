@@ -37,6 +37,9 @@ public sealed partial class TrafficView : UserControl
         Unloaded += (_, _) => _timer.Stop();
     }
 
+    public void SetRefreshInterval(int seconds) =>
+        _timer.Interval = TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 10));
+
     public void Attach(ProxyTrafficService service)
     {
         _service = service;
@@ -95,8 +98,83 @@ public sealed partial class TrafficView : UserControl
         BilledText.Text = ByteFormatter.Size(report.BilledRx + report.BilledTx);
         BilledSplit.Text = $"↓ {ByteFormatter.Size(report.BilledRx)}   ↑ {ByteFormatter.Size(report.BilledTx)}";
 
+        BuildPie(report.Apps);
         BuildApps(report.Apps);
         BuildNodes(report.Nodes);
+    }
+
+    private void BuildPie(IReadOnlyList<ProxyAppUsage> apps)
+    {
+        PieLegend.Children.Clear();
+
+        var groups = apps
+            .GroupBy(app => app.Category)
+            .Select(group => (Category: group.Key, Total: group.Sum(app => app.Total)))
+            .Where(group => group.Total > 0)
+            .OrderByDescending(group => group.Total)
+            .ToList();
+
+        long total = groups.Sum(group => group.Total);
+        if (total <= 0)
+        {
+            PieCard.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        PieCard.Visibility = Visibility.Visible;
+
+        var slices = groups
+            .Select(group => new DonutSlice(
+                group.Category,
+                group.Total,
+                IconCatalog.ForCategory(group.Category).Color))
+            .ToList();
+
+        CategoryPie.SetData(slices, ByteFormatter.Size(total), "实际流量");
+
+        var secondary = (Brush)Application.Current.Resources["TextSecondaryBrush"];
+        var muted = (Brush)Application.Current.Resources["TextMutedBrush"];
+
+        foreach (var group in groups)
+        {
+            var color = IconCatalog.ForCategory(group.Category).Color;
+
+            var row = new Grid { ColumnSpacing = 8 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var dot = new Microsoft.UI.Xaml.Shapes.Ellipse
+            {
+                Width = 8,
+                Height = 8,
+                Fill = new SolidColorBrush(color),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            var label = new TextBlock
+            {
+                Text = group.Category,
+                FontSize = 11.5,
+                Foreground = secondary,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            var amount = new TextBlock
+            {
+                Text = $"{ByteFormatter.Size(group.Total)}   {(double)group.Total / total:P0}",
+                FontSize = 10.5,
+                Foreground = muted,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            Grid.SetColumn(label, 1);
+            Grid.SetColumn(amount, 2);
+            row.Children.Add(dot);
+            row.Children.Add(label);
+            row.Children.Add(amount);
+            PieLegend.Children.Add(row);
+        }
     }
 
     private void BuildApps(IReadOnlyList<ProxyAppUsage> apps)

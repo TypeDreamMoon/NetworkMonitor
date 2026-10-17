@@ -25,6 +25,9 @@ public sealed class AppSettings
 
     public bool AutoCheckUpdates { get; set; } = true;
 
+    /// <summary>UI / sampling refresh interval in seconds (1, 2 or 5).</summary>
+    public int RefreshIntervalSeconds { get; set; } = 1;
+
     /// <summary>Version the user chose to skip in the automatic update prompt.</summary>
     public string? SkippedUpdateVersion { get; set; }
 
