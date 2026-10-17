@@ -1,0 +1,764 @@
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.UI.Windowing;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+using NetworkMonitor.Core.Configuration;
+using NetworkMonitor.Core.Formatting;
+using NetworkMonitor.Core.Monitoring;
+using NetworkMonitor.Core.Proxy;
+using NetworkMonitor.WinUI.Controls;
+using NetworkMonitor.Core.Sampling;
+using NetworkMonitor.Core.Storage;
+using NetworkMonitor.WinUI.Interop;
+using NetworkMonitor.WinUI.Services;
+using Windows.Graphics;
+
+namespace NetworkMonitor.WinUI;
+
+public sealed partial class MainWindow : Window
+{
+    private const int HistoryCapacity = 120;
+
+    private readonly MonitoringService _monitor;
+    private readonly AppSettings _settings;
+    private readonly List<double> _downHistory = new(HistoryCapacity);
+    private readonly List<double> _upHistory = new(HistoryCapacity);
+
+    private UsageReport? _report;
+    private int _rangeDays = 7;
+    private Native.WindowProc? _windowProc;
+    private IntPtr _previousWindowProc;
+    private IntPtr _windowHandle;
+    private readonly DispatcherTimer _homeTrafficTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private readonly UpdateService _updates = new();
+    private bool _checkingUpdate;
+    private bool _syncingAutoUpdate;
+    private bool _dragging;
+    private bool _pendingTrafficPage;
+    private bool _onTrafficPage;
+    private int _dragStartX;
+    private int _dragStartY;
+    private int _windowStartX;
+    private int _windowStartY;
+    private bool _syncingCombo;
+    private bool _syncingToggles;
+
+    public MainWindow(MonitoringService monitor, AppSettings settings)
+    {
+        InitializeComponent();
+
+        Root.Loaded += (_, _) =>
+        {
+            Native.UseDarkFrame(this);
+            Native.SetDarkBorder(this);
+            PreventMaximize();
+
+            if (_pendingTrafficPage) SetPage(true);
+        };
+
+        AppWindow.Changed += (_, args) =>
+        {
+            if (args.DidSizeChange || args.DidVisibilityChange)
+                PreventMaximize();
+
+            if (AppWindow.Presenter is OverlappedPresenter presenter
+                && presenter.State == OverlappedPresenterState.Maximized)
+            {
+                presenter.Restore();
+            }
+        };
+
+        _monitor = monitor;
+        _settings = settings;
+
+        SetupWindow();
+        SetupTray();
+
+        _monitor.SpeedTick += HandleSpeed;
+        _monitor.UsageRefreshed += HandleUsage;
+        _monitor.InterfacesChanged += HandleInterfacesChanged;
+
+        AppWindow.Closing += OnWindowClosing;
+
+        RebuildInterfaceCombo();
+        SyncToggles();
+
+        ProxyControllerBox.Text = _settings.ClashController ?? string.Empty;
+        ProxySecretBox.Password = _settings.ClashSecret ?? string.Empty;
+        VersionText.Text = $"当前版本 {_updates.CurrentVersion}";
+        UpdateStatusText.Text = _updates.IsConfigured ? "未检查更新" : "未配置更新仓库（RepositoryUrl）";
+        _syncingAutoUpdate = true;
+        AutoUpdateSwitch.IsOn = _settings.AutoCheckUpdates;
+        _syncingAutoUpdate = false;
+
+        App.Instance.ProxyTraffic.SnapshotUpdated += OnProxySnapshot;
+
+        TrafficPanel.Attach(App.Instance.ProxyTraffic);
+        _homeTrafficTimer.Tick += async (_, _) => await RefreshHomeTrafficAsync();
+        _homeTrafficTimer.Start();
+        _ = RefreshHomeTrafficAsync();
+
+        if (_monitor.Latest is { } latest) HandleUsage(latest);
+        else FootNote.Text = "正在读取流量台账…";
+    }
+
+    private void SetupWindow()
+    {
+        try
+        {
+            SystemBackdrop = new DesktopAcrylicBackdrop();
+        }
+        catch (Exception ex)
+        {
+            Log.Write("亚克力背景不可用", ex);
+        }
+
+        if (AppWindow.Presenter is OverlappedPresenter presenter)
+        {
+            // Keep the DWM border (rounded corners + shadow) but drop the system title bar
+            // entirely, so there is no maximize button at all.
+            presenter.SetBorderAndTitleBar(true, false);
+            presenter.IsResizable = false;
+            presenter.IsMaximizable = false;
+        }
+
+        try
+        {
+            AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "networkmonitor.ico"));
+        }
+        catch (Exception ex)
+        {
+            Log.Write("设置窗口图标失败", ex);
+        }
+
+        IntPtr hwnd = Native.Handle(this);
+        double scale = Native.GetDpiForWindow(hwnd) / 96.0;
+        if (scale <= 0) scale = 1;
+
+        int width = (int)(520 * scale);
+        int height = (int)(800 * scale);
+        AppWindow.ResizeClient(new SizeInt32(width, height));
+
+        var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+        AppWindow.Move(new PointInt32(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2));
+    }
+
+    private void PreventMaximize()
+    {
+        if (_windowHandle == IntPtr.Zero)
+        {
+            _windowHandle = Native.Handle(this);
+            if (_windowHandle != IntPtr.Zero)
+            {
+                _windowProc = WindowProc;
+                _previousWindowProc = Native.SetWindowProc(_windowHandle, _windowProc);
+            }
+        }
+
+        Native.RemoveMaximizeBox(this);
+    }
+
+    private IntPtr WindowProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam)
+    {
+        const uint WmSysCommand = 0x0112;
+        const uint ScMaximize = 0xF030;
+        const uint WmNcLButtonDblClk = 0x00A3;
+        const int HtCaption = 2;
+        const uint WmGetMinMaxInfo = 0x0024;
+
+        switch (message)
+        {
+            case WmSysCommand when ((uint)wParam & 0xFFF0) == ScMaximize:
+                return IntPtr.Zero;
+
+            case WmNcLButtonDblClk when (int)wParam == HtCaption:
+                return IntPtr.Zero;
+
+            case WmGetMinMaxInfo:
+                ClampMaxTrackSize(hwnd, lParam);
+                break;
+        }
+
+        return Native.CallPreviousWindowProc(_previousWindowProc, hwnd, message, wParam, lParam);
+    }
+
+    private static void ClampMaxTrackSize(IntPtr hwnd, IntPtr lParam)
+    {
+        if (!Native.GetWindowRect(hwnd, out var rect) || rect.Width <= 0 || rect.Height <= 0)
+            return;
+
+        var info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+        info.MaxSize.X = rect.Width;
+        info.MaxSize.Y = rect.Height;
+        info.MaxTrackSize.X = rect.Width;
+        info.MaxTrackSize.Y = rect.Height;
+        Marshal.StructureToPtr(info, lParam, false);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public NativePoint Reserved;
+        public NativePoint MaxSize;
+        public NativePoint MaxPosition;
+        public NativePoint MinTrackSize;
+        public NativePoint MaxTrackSize;
+    }
+
+    private void SetupTray()
+    {
+        try
+        {
+            string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "networkmonitor.ico");
+            if (File.Exists(iconPath))
+                Tray.IconSource = new BitmapImage(new Uri(iconPath));
+        }
+        catch (Exception ex)
+        {
+            Log.Write("托盘图标加载失败", ex);
+        }
+
+        Tray.LeftClickCommand = new RelayCommand(() => App.Instance.ShowMain());
+        Tray.DoubleClickCommand = new RelayCommand(() => App.Instance.ShowMain());
+    }
+
+    private void OnWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (App.Instance.IsExiting) return;
+        args.Cancel = true;
+        sender.Hide();
+    }
+
+    // ---------- live speed ----------
+
+    private void HandleSpeed(SpeedSample sample)
+    {
+        DownValue.Text = ByteFormatter.Rate(sample.DownBps);
+        UpValue.Text = ByteFormatter.Rate(sample.UpBps);
+        SessionText.Text = $"本次 ↓ {ByteFormatter.Size(sample.SessionDownBytes)}   ↑ {ByteFormatter.Size(sample.SessionUpBytes)}";
+
+        Push(_downHistory, sample.DownBps);
+        Push(_upHistory, sample.UpBps);
+        DownSpark.SetValues(_downHistory.ToArray());
+        UpSpark.SetValues(_upHistory.ToArray());
+
+        StatusText.Text = _monitor.SelectedKeys.Count > 0 ? "实时监控" : "无活动网卡";
+
+        try
+        {
+            Tray.ToolTipText = $"NetworkMonitor  ↓ {ByteFormatter.Rate(sample.DownBps)}  ↑ {ByteFormatter.Rate(sample.UpBps)}";
+        }
+        catch
+        {
+            // shell may reject overly long tooltips; harmless
+        }
+    }
+
+    private static void Push(List<double> history, double value)
+    {
+        history.Add(value);
+        if (history.Count > HistoryCapacity) history.RemoveAt(0);
+    }
+
+    // ---------- usage ----------
+
+    private void HandleUsage(UsageReport report)
+    {
+        _report = report;
+
+        SetCard(TodayTotal, TodaySplit, report.Today);
+        SetCard(WeekTotal, WeekSplit, report.Week);
+        SetCard(MonthTotal, MonthSplit, report.Month);
+        SetCard(TotalTotal, TotalSplit, report.Total);
+
+        Bars.SetData(report.DailySeries.TakeLast(_rangeDays).ToList());
+
+        string since = report.FirstTrackedDate is { } date ? $"统计自 {date:yyyy-MM-dd}" : "尚无历史数据";
+        FootNote.Text = $"{since}{Environment.NewLine}{AppPaths.DataDirectory}";
+    }
+
+    private static void SetCard(TextBlock total, TextBlock split, UsageAmount amount)
+    {
+        total.Text = ByteFormatter.Size(amount.Total);
+        split.Text = $"↓ {ByteFormatter.Size(amount.Rx)}   ↑ {ByteFormatter.Size(amount.Tx)}";
+    }
+
+    // ---------- interface picker ----------
+
+    private void HandleInterfacesChanged() => RebuildInterfaceCombo();
+
+    private void RebuildInterfaceCombo()
+    {
+        _syncingCombo = true;
+        try
+        {
+            IfaceCombo.Items.Clear();
+            IfaceCombo.Items.Add(new ComboBoxItem { Content = "自动（全部物理网卡）", Tag = string.Empty });
+
+            int selectedIndex = 0;
+            int index = 1;
+            foreach (var nic in _monitor.Interfaces.Where(InterfaceFilter.IsCountable).OrderBy(n => n.DisplayName))
+            {
+                IfaceCombo.Items.Add(new ComboBoxItem { Content = $"{nic.DisplayName}（{nic.Kind}）", Tag = nic.Key });
+                if (!_monitor.AutoSelect && _monitor.SelectedKeys.Contains(nic.Key)) selectedIndex = index;
+                index++;
+            }
+
+            IfaceCombo.SelectedIndex = selectedIndex;
+        }
+        finally
+        {
+            _syncingCombo = false;
+        }
+    }
+
+    private void IfaceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingCombo) return;
+        if (IfaceCombo.SelectedItem is not ComboBoxItem item) return;
+
+        string key = item.Tag as string ?? string.Empty;
+        if (string.IsNullOrEmpty(key)) _monitor.SelectAutomatic();
+        else _monitor.SelectInterface(key);
+    }
+
+    // ---------- chart range ----------
+
+    private void RangeSegment_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        _rangeDays = RangeSegment.SelectedIndex == 1 ? 30 : 7;
+        if (_report is not null)
+            Bars.SetData(_report.DailySeries.TakeLast(_rangeDays).ToList());
+    }
+
+    // ---------- toggles ----------
+
+    public void SyncToggles()
+    {
+        _syncingToggles = true;
+        try
+        {
+            FloatingSwitch.IsOn = _settings.ShowFloatingWindow;
+            TaskbarSwitch.IsOn = _settings.ShowTaskbarWindow;
+            StartupSwitch.IsOn = StartupRegistration.IsEnabled();
+
+            TrayFloating.IsChecked = _settings.ShowFloatingWindow;
+            TrayTaskbar.IsChecked = _settings.ShowTaskbarWindow;
+            TrayStartup.IsChecked = StartupRegistration.IsEnabled();
+        }
+        finally
+        {
+            _syncingToggles = false;
+        }
+    }
+
+    private void FloatingSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_syncingToggles) return;
+        App.Instance.SetFloatingVisible(FloatingSwitch.IsOn);
+    }
+
+    private void TaskbarSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_syncingToggles) return;
+        App.Instance.SetTaskbarVisible(TaskbarSwitch.IsOn);
+    }
+
+    private void StartupSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_syncingToggles) return;
+        App.Instance.SetStartup(StartupSwitch.IsOn);
+    }
+
+    private void OpenDataFolder_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", AppPaths.DataDirectory) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Write("打开数据目录失败", ex);
+        }
+    }
+
+    private void FloatButton_Click(object sender, RoutedEventArgs e) =>
+        App.Instance.SetFloatingVisible(!_settings.ShowFloatingWindow);
+
+    private void Traffic_Click(object sender, RoutedEventArgs e) => ShowTrafficTab();
+
+    private void ShowTrafficPage_Click(object sender, RoutedEventArgs e) => ShowTrafficTab();
+
+    public void ShowTrafficTab()
+    {
+        if (!Root.IsLoaded)
+        {
+            _pendingTrafficPage = true;
+            return;
+        }
+
+        SetPage(true);
+    }
+
+    private void Back_Click(object sender, RoutedEventArgs e) => SetPage(false);
+
+    private void SetPage(bool traffic)
+    {
+        _pendingTrafficPage = false;
+        _onTrafficPage = traffic;
+
+        HomeScroll.Visibility = traffic ? Visibility.Collapsed : Visibility.Visible;
+        TrafficScroll.Visibility = traffic ? Visibility.Visible : Visibility.Collapsed;
+        BackButton.Visibility = traffic ? Visibility.Visible : Visibility.Collapsed;
+        TrafficButton.Visibility = traffic ? Visibility.Collapsed : Visibility.Visible;
+
+        if (traffic)
+        {
+            TrafficScroll.ChangeView(null, 0, null);
+            _ = TrafficPanel.RefreshAsync();
+        }
+        else
+        {
+            _ = RefreshHomeTrafficAsync();
+        }
+    }
+
+    private async Task RefreshHomeTrafficAsync()
+    {
+        if (_onTrafficPage) return;
+
+        try
+        {
+            var service = App.Instance.ProxyTraffic;
+            var report = await service.BuildReportAsync(ProxyScope.Today);
+
+            HomeTrafficList.Children.Clear();
+
+            HomeNodeList.Children.Clear();
+
+            if (!service.Connected)
+            {
+                HomeTrafficSummary.Text = "未连接代理控制器（FlClash / Clash Verge Rev 需开启 External controller）";
+                return;
+            }
+
+            HomeTrafficSummary.Inlines.Clear();
+            HomeTrafficSummary.Inlines.Add(new Run
+            {
+                Text = $"实际 ↓ {ByteFormatter.Size(report.Rx)}   ↑ {ByteFormatter.Size(report.Tx)}",
+                Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(IconCatalog.Down),
+            });
+            HomeTrafficSummary.Inlines.Add(new Run
+            {
+                Text = $"   ·   计费 {ByteFormatter.Size(report.BilledRx + report.BilledTx)}   ·   {report.Apps.Count} 个应用",
+                Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(IconCatalog.Up),
+            });
+
+            foreach (var app in report.Apps.Take(4))
+            {
+                var row = new Grid { ColumnSpacing = 8 };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var visual = IconCatalog.ForCategory(app.Category);
+                var nameRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
+                nameRow.Children.Add(IconCatalog.Create(visual.Icon, 11, visual.Color));
+                nameRow.Children.Add(new TextBlock
+                {
+                    Text = $"{app.DisplayName}  ·  {app.Category}",
+                    FontSize = 12,
+                    Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextSecondaryBrush"],
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                });
+
+                string amount = app.BilledTotal != app.Total
+                    ? $"{ByteFormatter.Size(app.Total)}  /  计费 {ByteFormatter.Size(app.BilledTotal)}"
+                    : ByteFormatter.Size(app.Total);
+
+                var total = new TextBlock
+                {
+                    Text = amount,
+                    FontSize = 12,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextPrimaryBrush"],
+                };
+                Grid.SetColumn(total, 1);
+                row.Children.Add(nameRow);
+                row.Children.Add(total);
+                HomeTrafficList.Children.Add(row);
+            }
+
+            foreach (var node in report.Nodes.Take(3))
+            {
+                var row = new Grid { ColumnSpacing = 8 };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var label = node.Multiplier != 1
+                    ? $"{node.Node}   ×{node.Multiplier:0.##}"
+                    : node.Node;
+
+                var name = new TextBlock
+                {
+                    Text = label,
+                    FontSize = 12,
+                    Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextSecondaryBrush"],
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                };
+
+                string amount = node.BilledTotal != node.Total
+                    ? $"{ByteFormatter.Size(node.Total)}  /  计费 {ByteFormatter.Size(node.BilledTotal)}"
+                    : ByteFormatter.Size(node.Total);
+
+                var total = new TextBlock
+                {
+                    Text = amount,
+                    FontSize = 12,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextPrimaryBrush"],
+                };
+                Grid.SetColumn(total, 1);
+                row.Children.Add(name);
+                row.Children.Add(total);
+                HomeNodeList.Children.Add(row);
+            }
+        }
+        catch
+        {
+            // keep the previous summary on transient failures
+        }
+    }
+
+    private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+        => await CheckForUpdatesAsync(interactive: true);
+
+    private void AutoUpdate_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_syncingAutoUpdate) return;
+
+        _settings.AutoCheckUpdates = AutoUpdateSwitch.IsOn;
+        _settings.Save();
+    }
+
+    public async Task CheckForUpdatesAsync(bool interactive)
+    {
+        if (_checkingUpdate) return;
+        _checkingUpdate = true;
+
+        try
+        {
+            UpdateStatusText.Text = "正在检查更新…";
+            var result = await _updates.CheckAsync();
+            UpdateStatusText.Text = result.Message;
+
+            switch (result.Status)
+            {
+                case UpdateCheckStatus.NotConfigured when interactive:
+                case UpdateCheckStatus.Failed when interactive:
+                    await ShowMessageAsync("更新", result.Message);
+                    break;
+                case UpdateCheckStatus.UpToDate when interactive:
+                    await ShowMessageAsync("更新", result.Message);
+                    break;
+                case UpdateCheckStatus.Available when result.Info is { } info:
+                    if (AppPaths.IsPortable)
+                    {
+                        if (interactive)
+                            await ShowMessageAsync("发现新版本", "便携版请从 GitHub Releases 下载新的 zip 手动更新。");
+                        return;
+                    }
+
+                    if (!interactive && _settings.SkippedUpdateVersion == info.Version) return;
+                    await ShowUpdateDialogAsync(info);
+                    break;
+            }
+        }
+        finally
+        {
+            _checkingUpdate = false;
+        }
+    }
+
+    private async Task ShowMessageAsync(string title, string message)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            CloseButtonText = "知道了",
+            XamlRoot = Root.XamlRoot,
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    private async Task ShowUpdateDialogAsync(UpdateInfo info)
+    {
+        string notes = string.IsNullOrWhiteSpace(info.Notes) ? "这个版本没有提供更新说明。" : info.Notes;
+
+        var dialog = new ContentDialog
+        {
+            Title = $"发现新版本 v{info.Version}",
+            Content = new ScrollViewer
+            {
+                MaxHeight = 320,
+                Content = new TextBlock { Text = notes, TextWrapping = TextWrapping.Wrap },
+            },
+            PrimaryButtonText = "下载并安装",
+            CloseButtonText = "稍后",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Root.XamlRoot,
+        };
+
+        var result = await dialog.ShowAsync();
+
+        if (result == ContentDialogResult.Primary)
+        {
+            await DownloadAndInstallAsync(info);
+        }
+        else
+        {
+            _settings.SkippedUpdateVersion = info.Version;
+            _settings.Save();
+            UpdateStatusText.Text = $"已跳过 v{info.Version}";
+        }
+    }
+
+    private async Task DownloadAndInstallAsync(UpdateInfo info)
+    {
+        using var cancellation = new CancellationTokenSource();
+
+        var progress = new ProgressBar { Minimum = 0, Maximum = 1, Width = 320 };
+        var text = new TextBlock { Text = "正在下载更新…", TextWrapping = TextWrapping.Wrap };
+        var panel = new StackPanel { Spacing = 10 };
+        panel.Children.Add(text);
+        panel.Children.Add(progress);
+
+        var dialog = new ContentDialog
+        {
+            Title = "下载更新",
+            Content = panel,
+            CloseButtonText = "取消",
+            XamlRoot = Root.XamlRoot,
+        };
+        dialog.CloseButtonClick += (_, _) => cancellation.Cancel();
+
+        _ = dialog.ShowAsync();
+
+        try
+        {
+            var reporter = new Progress<double>(value => DispatcherQueue.TryEnqueue(() =>
+            {
+                progress.Value = value;
+                text.Text = $"正在下载更新… {value:P0}";
+            }));
+
+            string path = await _updates.DownloadAsync(info, reporter, cancellation.Token);
+
+            try { dialog.Hide(); } catch { /* already closed */ }
+            UpdateStatusText.Text = "下载完成，正在安装…";
+
+            _updates.InstallAndRestart(path);
+            ((App)Application.Current).ExitApplication();
+        }
+        catch (OperationCanceledException)
+        {
+            try { dialog.Hide(); } catch { /* already closed */ }
+            UpdateStatusText.Text = "已取消更新";
+        }
+        catch (Exception ex)
+        {
+            try { dialog.Hide(); } catch { /* already closed */ }
+            UpdateStatusText.Text = "更新失败：" + ex.Message;
+        }
+    }
+
+    private void OnProxySnapshot(ProxyTrafficSnapshot snapshot)
+    {
+        ProxyStatusText.Text = snapshot.Connected
+            ? $"已连接 {snapshot.Endpoint}"
+            : snapshot.Status;
+    }
+
+    private void ProxySave_Click(object sender, RoutedEventArgs e)
+    {
+        string? controller = ProxyControllerBox.Text.Trim();
+        _settings.ClashController = string.IsNullOrEmpty(controller) ? null : controller;
+        _settings.ClashSecret = string.IsNullOrEmpty(ProxySecretBox.Password) ? null : ProxySecretBox.Password;
+        _settings.ClashAutoDetect = string.IsNullOrEmpty(controller);
+        _settings.Save();
+
+        App.Instance.RefreshProxy();
+        ProxyStatusText.Text = "已保存，等待连接…";
+    }
+
+    private void ProxyRecheck_Click(object sender, RoutedEventArgs e)
+    {
+        App.Instance.RefreshProxy();
+        ProxyStatusText.Text = "正在重新检测…";
+    }
+
+    // ---------- window chrome ----------
+
+    private void TitleBar_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(Content).Properties.IsLeftButtonPressed) return;
+
+        var (x, y) = Native.CursorPosition();
+        _dragging = true;
+        _dragStartX = x;
+        _dragStartY = y;
+        _windowStartX = AppWindow.Position.X;
+        _windowStartY = AppWindow.Position.Y;
+        TitleBar.CapturePointer(e.Pointer);
+    }
+
+    private void TitleBar_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_dragging) return;
+
+        var (x, y) = Native.CursorPosition();
+        AppWindow.Move(new Windows.Graphics.PointInt32(
+            _windowStartX + (x - _dragStartX),
+            _windowStartY + (y - _dragStartY)));
+    }
+
+    private void TitleBar_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_dragging) return;
+        _dragging = false;
+        TitleBar.ReleasePointerCapture(e.Pointer);
+    }
+
+    private void Minimize_Click(object sender, RoutedEventArgs e)
+    {
+        if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.Minimize();
+    }
+
+    private void Hide_Click(object sender, RoutedEventArgs e) => AppWindow.Hide();
+
+    // ---------- tray menu ----------
+
+    private void TrayShow_Click(object sender, RoutedEventArgs e) => App.Instance.ShowMain();
+
+    private void TrayFloating_Click(object sender, RoutedEventArgs e) => App.Instance.SetFloatingVisible(!_settings.ShowFloatingWindow);
+
+    private void TrayTaskbar_Click(object sender, RoutedEventArgs e) => App.Instance.SetTaskbarVisible(!_settings.ShowTaskbarWindow);
+
+    private void TrayStartup_Click(object sender, RoutedEventArgs e) => App.Instance.SetStartup(!_settings.LaunchAtStartup);
+
+    private void TrayExit_Click(object sender, RoutedEventArgs e) => App.Instance.ExitApplication();
+}

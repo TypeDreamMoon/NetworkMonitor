@@ -1,0 +1,82 @@
+<UserControl
+    x:Class="NetworkMonitor.WinUI.Controls.TrafficView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls">
+
+    <StackPanel Spacing="10">
+        <StackPanel Orientation="Horizontal" Spacing="7" Margin="2,2,0,0">
+            <Image Source="ms-appx:///Assets/Icons/traffic_5B9DFF.svg" Width="16" Height="16" />
+            <TextBlock Text="应用流量" FontSize="18" FontWeight="SemiBold"
+                       Foreground="{StaticResource TextPrimaryBrush}" />
+        </StackPanel>
+
+        <Grid>
+            <TextBlock x:Name="StatusText" Text="正在检测代理控制器…" FontSize="11"
+                       Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center" HorizontalAlignment="Left" MaxWidth="400" />
+            <Button Content="刷新" Style="{StaticResource TitleIconButton}" Width="44"
+                    HorizontalAlignment="Right" VerticalAlignment="Center" Click="Refresh_Click" />
+        </Grid>
+
+        <Border Style="{StaticResource Card}">
+            <StackPanel Spacing="8">
+                <Grid>
+                    <TextBlock x:Name="ScopeLabel" Text="今日应用流量" Style="{StaticResource CaptionText}"
+                               VerticalAlignment="Center" />
+                    <toolkit:Segmented x:Name="ScopeSegment" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                       SelectedIndex="0" SelectionChanged="Scope_Changed">
+                        <toolkit:SegmentedItem Content="今日" />
+                        <toolkit:SegmentedItem Content="本周" />
+                        <toolkit:SegmentedItem Content="本月" />
+                    </toolkit:Segmented>
+                </Grid>
+
+                <Grid ColumnSpacing="18">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <Image Source="ms-appx:///Assets/Icons/downcircle_3EDCC4.svg" Width="12" Height="12" />
+                            <TextBlock Text="实际流量" Style="{StaticResource CaptionText}" />
+                        </StackPanel>
+                        <TextBlock x:Name="ActualText" Text="—" FontSize="24" FontWeight="SemiBold"
+                                   Foreground="{StaticResource DownBrush}" />
+                        <TextBlock x:Name="ActualSplit" Text="↓ —   ↑ —" Style="{StaticResource MutedText}" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Spacing="2">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <Image Source="ms-appx:///Assets/Icons/billed_FFB454.svg" Width="12" Height="12" />
+                            <TextBlock Text="计费流量" Style="{StaticResource CaptionText}" />
+                        </StackPanel>
+                        <TextBlock x:Name="BilledText" Text="—" FontSize="24" FontWeight="SemiBold"
+                                   Foreground="{StaticResource UpBrush}" />
+                        <TextBlock x:Name="BilledSplit" Text="按节点倍率计算" Style="{StaticResource MutedText}" />
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <TextBlock x:Name="EmptyHint" Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                   Visibility="Collapsed" />
+
+        <StackPanel Orientation="Horizontal" Spacing="6" Margin="2,4,0,0">
+            <Image Source="ms-appx:///Assets/Icons/traffic_5B9DFF.svg" Width="13" Height="13" />
+            <TextBlock Text="按应用" Style="{StaticResource SectionTitle}" />
+        </StackPanel>
+        <StackPanel x:Name="AppsPanel" Spacing="6" />
+
+        <StackPanel Orientation="Horizontal" Spacing="6" Margin="2,8,0,0">
+            <Image Source="ms-appx:///Assets/Icons/nodes_94A3B8.svg" Width="13" Height="13" />
+            <TextBlock Text="按节点" Style="{StaticResource SectionTitle}" />
+        </StackPanel>
+        <StackPanel x:Name="NodesPanel" Spacing="8" />
+
+        <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="2,8,0,0"
+                   Text="当前统计经过代理内核的连接（含 DIRECT）；节点卡右上角可设置计费倍率。" />
+    </StackPanel>
+</UserControl>

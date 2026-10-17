@@ -1,0 +1,19 @@
+.idea/
+# build output
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.binlog
+
+# local verification / scratch
+.verify/
+dist/
+publish/
+publish-*/
+installer/Output/
+*.tmp
+
+# app data if someone runs with NETWORKMONITOR_HOME=.data
+.data/

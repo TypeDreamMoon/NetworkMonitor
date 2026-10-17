@@ -1,0 +1,12 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+  </Configurations>
+  <Folder Name="/src/">
+    <Project Path="src/NetworkMonitor.Console/NetworkMonitor.Console.csproj" />
+    <Project Path="src/NetworkMonitor.Core/NetworkMonitor.Core.csproj" />
+    <Project Path="src/NetworkMonitor.WinUI/NetworkMonitor.WinUI.csproj">
+      <Platform Project="x64" />
+    </Project>
+  </Folder>
+</Solution>

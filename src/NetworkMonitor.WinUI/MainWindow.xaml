@@ -1,0 +1,286 @@
+<Window
+    x:Class="NetworkMonitor.WinUI.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:NetworkMonitor.WinUI.Controls"
+    xmlns:tb="using:H.NotifyIcon"
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
+    Title="NetworkMonitor">
+
+    <Grid x:Name="Root" RequestedTheme="Dark" Background="#990B0F16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- custom title bar -->
+        <Grid x:Name="TitleBar" Grid.Row="0" Background="Transparent" PointerPressed="TitleBar_PointerPressed" PointerMoved="TitleBar_PointerMoved" PointerReleased="TitleBar_PointerReleased">
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="16,0,0,0" VerticalAlignment="Center">
+                <Border Width="26" Height="26" CornerRadius="9" Background="#1F5B9DFF">
+                    <TextBlock Text="↕" FontSize="14" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <TextBlock Text="NetworkMonitor" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"
+                           Foreground="{StaticResource TextPrimaryBrush}" />
+                <TextBlock x:Name="StatusText" Text="实时监控" FontSize="11" VerticalAlignment="Center"
+                           Foreground="{StaticResource TextMutedBrush}" />
+
+                <Button x:Name="BackButton" Style="{StaticResource TitleIconButton}" Width="62"
+                        Margin="6,0,0,0" Visibility="Collapsed" Click="Back_Click"
+                        ToolTipService.ToolTip="返回首页">
+                    <StackPanel Orientation="Horizontal" Spacing="3">
+                        <Image Source="ms-appx:///Assets/Icons/back_93A2B8.svg" Width="11" Height="11" />
+                        <TextBlock Text="首页" FontSize="11" />
+                    </StackPanel>
+                </Button>
+
+                <Button x:Name="SettingsButton" Style="{StaticResource TitleIconButton}" Margin="8,0,0,0"
+                        ToolTipService.ToolTip="设置">
+                    <Image Source="ms-appx:///Assets/Icons/settings_93A2B8.svg" Width="13" Height="13" />
+                    <Button.Flyout>
+                        <Flyout Placement="BottomEdgeAlignedLeft">
+                            <ScrollViewer MaxHeight="640" VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Width="330" Spacing="6">
+                                <TextBlock Text="显示" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextMutedBrush}" Margin="4,0,0,2" />
+                                <toolkit:SettingsCard Header="桌面悬浮窗" Description="可拖动的小窗，双击打开主界面">
+                                    <ToggleSwitch x:Name="FloatingSwitch" OnContent="" OffContent=""
+                                                  Toggled="FloatingSwitch_Toggled" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="任务栏显示" Description="停靠在通知区域左侧，失败时自动回退悬浮">
+                                    <ToggleSwitch x:Name="TaskbarSwitch" OnContent="" OffContent=""
+                                                  Toggled="TaskbarSwitch_Toggled" />
+                                </toolkit:SettingsCard>
+                                <TextBlock Text="系统" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextMutedBrush}" Margin="4,8,0,2" />
+                                <toolkit:SettingsCard Header="开机自启" Description="登录 Windows 后自动在托盘运行">
+                                    <ToggleSwitch x:Name="StartupSwitch" OnContent="" OffContent=""
+                                                  Toggled="StartupSwitch_Toggled" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="版本" Description="检查并安装新版本">
+                                    <StackPanel Spacing="6" Width="190">
+                                        <TextBlock x:Name="VersionText" Style="{StaticResource MutedText}" TextWrapping="Wrap" />
+                                        <TextBlock x:Name="UpdateStatusText" Style="{StaticResource MutedText}" TextWrapping="Wrap" />
+                                        <Button Content="检查更新" Click="CheckUpdate_Click" />
+                                        <ToggleSwitch x:Name="AutoUpdateSwitch" Header="自动检查更新"
+                                                      OnContent="" OffContent="" Toggled="AutoUpdate_Toggled" />
+                                    </StackPanel>
+                                </toolkit:SettingsCard>
+                                <TextBlock Text="统计" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextMutedBrush}" Margin="4,8,0,2" />
+                                <toolkit:SettingsCard Header="统计网卡" Description="选择参与网速统计的网卡">
+                                    <ComboBox x:Name="IfaceCombo" Width="190" Height="32" FontSize="12"
+                                              SelectionChanged="IfaceCombo_SelectionChanged" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="统计信息">
+                                    <TextBlock x:Name="FootNote" Style="{StaticResource MutedText}"
+                                               TextWrapping="Wrap" Width="190" />
+                                </toolkit:SettingsCard>
+
+                                <TextBlock Text="流量来源" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextMutedBrush}" Margin="4,8,0,2" />
+                                <toolkit:SettingsCard Header="控制器" Description="FlClash / Clash Verge 的 External controller">
+                                    <StackPanel Spacing="6" Width="190">
+                                        <TextBlock x:Name="ProxyStatusText" Text="检测中…" Style="{StaticResource MutedText}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBox x:Name="ProxyControllerBox" PlaceholderText="127.0.0.1:9090" FontSize="12" />
+                                        <PasswordBox x:Name="ProxySecretBox" PlaceholderText="secret（可留空）" FontSize="12" />
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Button Content="保存" Click="ProxySave_Click" />
+                                            <Button Content="重新检测" Click="ProxyRecheck_Click" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="数据目录" Description="流量台账与设置文件">
+                                    <Button Content="打开" Click="OpenDataFolder_Click" />
+                                </toolkit:SettingsCard>
+                            </StackPanel>
+                            </ScrollViewer>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+                <Button x:Name="TrafficButton" Style="{StaticResource TitleIconButton}"
+                        ToolTipService.ToolTip="应用流量（FlClash）" Click="Traffic_Click">
+                    <Image Source="ms-appx:///Assets/Icons/traffic_5B9DFF.svg" Width="13" Height="13" />
+                </Button>
+                <Button x:Name="FloatButton" Style="{StaticResource TitleIconButton}"
+                        ToolTipService.ToolTip="显示 / 隐藏悬浮窗" Click="FloatButton_Click">
+                    <Image Source="ms-appx:///Assets/Icons/window_93A2B8.svg" Width="13" Height="13" />
+                </Button>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
+                        Margin="0,0,8,0" Spacing="2">
+                <Button Style="{StaticResource TitleIconButton}" ToolTipService.ToolTip="最小化" Click="Minimize_Click">
+                    <Image Source="ms-appx:///Assets/Icons/minus_93A2B8.svg" Width="11" Height="11" />
+                </Button>
+                <Button Style="{StaticResource TitleIconButton}" ToolTipService.ToolTip="隐藏到托盘" Click="Hide_Click">
+                    <Image Source="ms-appx:///Assets/Icons/close_93A2B8.svg" Width="10" Height="10" />
+                </Button>
+            </StackPanel>
+
+        </Grid>
+
+
+
+        <!-- content -->
+        <ScrollViewer x:Name="HomeScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="18,0,18,18" Spacing="10">
+
+                <!-- live speed -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel Spacing="8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="1" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" Spacing="3">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Image Source="ms-appx:///Assets/Icons/downcircle_3EDCC4.svg" Width="13" Height="13" />
+                                    <TextBlock Text="下载" Style="{StaticResource CaptionText}" />
+                                </StackPanel>
+                                <TextBlock x:Name="DownValue" Text="—" Style="{StaticResource MetricText}" />
+                                <controls:SparklineView x:Name="DownSpark" Height="42" Margin="0,4,0,0" />
+                            </StackPanel>
+
+                            <Rectangle Grid.Column="1" Width="1" Fill="{StaticResource DividerBrush}" Margin="0,2" />
+
+                            <StackPanel Grid.Column="2" Spacing="3" Margin="16,0,0,0">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Image Source="ms-appx:///Assets/Icons/upcircle_FFB454.svg" Width="13" Height="13" />
+                                    <TextBlock Text="上传" Style="{StaticResource CaptionText}" />
+                                </StackPanel>
+                                <TextBlock x:Name="UpValue" Text="—" Style="{StaticResource MetricText}" />
+                                <controls:SparklineView x:Name="UpSpark" Height="42" Margin="0,4,0,0" />
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock x:Name="SessionText" Text="本次 —" Style="{StaticResource MutedText}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- usage cards -->
+                <Grid ColumnSpacing="10" RowSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource StatCard}">
+                        <StackPanel>
+                                                        <StackPanel Orientation="Horizontal" Spacing="5">
+                                <Image Source="ms-appx:///Assets/Icons/today_3EDCC4.svg" Width="12" Height="12" />
+                                <TextBlock Text="今日" Style="{StaticResource CaptionText}" />
+                            </StackPanel>
+                            <TextBlock x:Name="TodayTotal" Text="—" Style="{StaticResource StatValueText}" />
+                            <TextBlock x:Name="TodaySplit" Text="↓ —   ↑ —" Style="{StaticResource MutedText}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource StatCard}">
+                        <StackPanel>
+                                                        <StackPanel Orientation="Horizontal" Spacing="5">
+                                <Image Source="ms-appx:///Assets/Icons/week_5B9DFF.svg" Width="12" Height="12" />
+                                <TextBlock Text="本周" Style="{StaticResource CaptionText}" />
+                            </StackPanel>
+                            <TextBlock x:Name="WeekTotal" Text="—" Style="{StaticResource StatValueText}" />
+                            <TextBlock x:Name="WeekSplit" Text="↓ —   ↑ —" Style="{StaticResource MutedText}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource StatCard}">
+                        <StackPanel>
+                                                        <StackPanel Orientation="Horizontal" Spacing="5">
+                                <Image Source="ms-appx:///Assets/Icons/month_A78BFA.svg" Width="12" Height="12" />
+                                <TextBlock Text="本月" Style="{StaticResource CaptionText}" />
+                            </StackPanel>
+                            <TextBlock x:Name="MonthTotal" Text="—" Style="{StaticResource StatValueText}" />
+                            <TextBlock x:Name="MonthSplit" Text="↓ —   ↑ —" Style="{StaticResource MutedText}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource StatCard}">
+                        <StackPanel>
+                                                        <StackPanel Orientation="Horizontal" Spacing="5">
+                                <Image Source="ms-appx:///Assets/Icons/total_FFB454.svg" Width="12" Height="12" />
+                                <TextBlock Text="总计" Style="{StaticResource CaptionText}" />
+                            </StackPanel>
+                            <TextBlock x:Name="TotalTotal" Text="—" Style="{StaticResource StatValueText}" />
+                            <TextBlock x:Name="TotalSplit" Text="↓ —   ↑ —" Style="{StaticResource MutedText}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- compact traffic summary -->
+                <Border Style="{StaticResource Card}" Margin="0,10,0,0">
+                    <StackPanel Spacing="8">
+                        <Grid>
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <Image Source="ms-appx:///Assets/Icons/traffic_5B9DFF.svg" Width="14" Height="14" />
+                                <TextBlock Text="应用流量" Style="{StaticResource SectionTitle}" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <Button Content="查看全部" Style="{StaticResource PillButton}" HorizontalAlignment="Right"
+                                    Click="ShowTrafficPage_Click" />
+                        </Grid>
+                        <TextBlock x:Name="HomeTrafficSummary" Text="正在读取应用流量…" Style="{StaticResource MutedText}"
+                                   TextWrapping="Wrap" />
+                        <StackPanel x:Name="HomeTrafficList" Spacing="4" />
+                        <StackPanel Orientation="Horizontal" Spacing="5" Margin="0,6,0,0">
+                            <Image Source="ms-appx:///Assets/Icons/nodes_94A3B8.svg" Width="12" Height="12" />
+                            <TextBlock Text="节点" Style="{StaticResource CaptionText}" />
+                        </StackPanel>
+                        <StackPanel x:Name="HomeNodeList" Spacing="4" />
+                    </StackPanel>
+                </Border>
+
+                <!-- daily chart -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel Spacing="10">
+                        <Grid>
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <Image Source="ms-appx:///Assets/Icons/chart_5B9DFF.svg" Width="14" Height="14" />
+                                <TextBlock Text="每日流量" FontSize="13" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <toolkit:Segmented x:Name="RangeSegment" HorizontalAlignment="Right" SelectedIndex="0"
+                                               SelectionChanged="RangeSegment_SelectionChanged">
+                                <toolkit:SegmentedItem Content="7 天" />
+                                <toolkit:SegmentedItem Content="30 天" />
+                            </toolkit:Segmented>
+                        </Grid>
+                        <controls:DailyBarsView x:Name="Bars" Height="150" />
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <ScrollViewer x:Name="TrafficScroll" Grid.Row="1" Visibility="Collapsed"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <controls:TrafficView x:Name="TrafficPanel" Margin="18,2,18,14" />
+        </ScrollViewer>
+
+        <!-- tray -->
+        <tb:TaskbarIcon x:Name="Tray" ToolTipText="NetworkMonitor" NoLeftClickDelay="True">
+            <tb:TaskbarIcon.ContextFlyout>
+                <MenuFlyout>
+                    <MenuFlyoutItem Text="显示主界面" Click="TrayShow_Click" />
+                    <MenuFlyoutSeparator />
+                    <ToggleMenuFlyoutItem x:Name="TrayFloating" Text="桌面悬浮窗" Click="TrayFloating_Click" />
+                    <ToggleMenuFlyoutItem x:Name="TrayTaskbar" Text="任务栏显示" Click="TrayTaskbar_Click" />
+                    <ToggleMenuFlyoutItem x:Name="TrayStartup" Text="开机自启" Click="TrayStartup_Click" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem Text="退出 NetworkMonitor" Click="TrayExit_Click" />
+                </MenuFlyout>
+            </tb:TaskbarIcon.ContextFlyout>
+        </tb:TaskbarIcon>
+    </Grid>
+</Window>
