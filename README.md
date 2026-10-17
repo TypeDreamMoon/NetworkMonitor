@@ -117,7 +117,7 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 
 ## 版本、CI 与自动更新
 
-当前版本 **1.1.2**，显示在「设置 → 版本」。
+当前版本 **1.1.3**，显示在「设置 → 版本」。
 
 ### CI
 
@@ -134,8 +134,8 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 仓库地址已配置为 `https://github.com/TypeDreamMoon/NetworkMonitor`。CI 会把 `RepositoryUrl` 覆盖成当前仓库。发布命令：
 
 ```powershell
-git tag v1.1.3
-git push origin v1.1.3
+git tag v1.1.4
+git push origin v1.1.4
 ```
 
 ### 自动更新

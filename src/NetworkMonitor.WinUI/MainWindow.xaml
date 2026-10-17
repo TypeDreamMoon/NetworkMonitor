@@ -233,15 +233,24 @@
                                     <ToggleSwitch x:Name="StartupSwitch" OnContent="" OffContent=""
                                                   Toggled="StartupSwitch_Toggled" />
                                 </toolkit:SettingsCard>
-                                <toolkit:SettingsCard Header="版本" Description="检查并安装新版本">
-                                    <StackPanel Spacing="6" Width="190">
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel Spacing="8">
+                                        <Grid>
+                                            <StackPanel Spacing="2">
+                                                <TextBlock Text="版本" FontSize="13" FontWeight="SemiBold"
+                                                           Foreground="{StaticResource TextPrimaryBrush}" />
+                                                <TextBlock Text="检查并安装新版本" Style="{StaticResource CaptionText}" />
+                                            </StackPanel>
+                                            <Button Content="检查更新" Style="{StaticResource PillButton}"
+                                                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                    Click="CheckUpdate_Click" />
+                                        </Grid>
                                         <TextBlock x:Name="VersionText" Style="{StaticResource MutedText}" TextWrapping="Wrap" />
                                         <TextBlock x:Name="UpdateStatusText" Style="{StaticResource MutedText}" TextWrapping="Wrap" />
-                                        <Button Content="检查更新" Click="CheckUpdate_Click" />
                                         <ToggleSwitch x:Name="AutoUpdateSwitch" Header="自动检查更新"
                                                       OnContent="" OffContent="" Toggled="AutoUpdate_Toggled" />
                                     </StackPanel>
-                                </toolkit:SettingsCard>
+                                </Border>
                                 <TextBlock Text="统计" FontSize="12" FontWeight="SemiBold"
                                            Foreground="{StaticResource TextMutedBrush}" Margin="4,8,0,2" />
                                 <toolkit:SettingsCard Header="刷新速度" Description="网速与应用流量的更新频率">
