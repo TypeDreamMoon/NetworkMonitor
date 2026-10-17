@@ -14,11 +14,14 @@ public partial class App : Application
 {
     private const string MutexName = @"Local\NetworkMonitor.WinUI.Instance.v1";
     private const string ShowEventName = @"Local\NetworkMonitor.WinUI.ShowMain.v1";
+    private const string ExitEventName = @"Local\NetworkMonitor.WinUI.Exit.v1";
 
     private DispatcherQueue _queue = null!;
     private Mutex? _mutex;
     private EventWaitHandle? _showEvent;
     private RegisteredWaitHandle? _showWait;
+    private EventWaitHandle? _exitEvent;
+    private RegisteredWaitHandle? _exitWait;
 
     private MonitoringService? _monitor;
     private ProxyTrafficService? _proxyTraffic;
@@ -53,10 +56,20 @@ public partial class App : Application
         _queue = DispatcherQueue.GetForCurrentThread();
         LogSink.Handler = Log.Write;
 
+        bool exitRequested = Environment.GetCommandLineArgs().Any(a => string.Equals(a, "--exit", StringComparison.OrdinalIgnoreCase));
+
         _mutex = new Mutex(initiallyOwned: true, MutexName, out bool isFirstInstance);
         if (!isFirstInstance)
         {
-            SignalExistingInstance();
+            if (exitRequested) SignalExitExistingInstance();
+            else SignalExistingInstance();
+
+            Exit();
+            return;
+        }
+
+        if (exitRequested)
+        {
             Exit();
             return;
         }
@@ -119,6 +132,10 @@ public partial class App : Application
         _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
         _showWait = ThreadPool.RegisterWaitForSingleObject(_showEvent,
             (_, _) => _queue.TryEnqueue(ShowMain), null, Timeout.Infinite, executeOnlyOnce: false);
+
+        _exitEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ExitEventName);
+        _exitWait = ThreadPool.RegisterWaitForSingleObject(_exitEvent,
+            (_, _) => _queue.TryEnqueue(ExitApplication), null, Timeout.Infinite, executeOnlyOnce: false);
     }
 
     private void OnSpeed(SpeedSample sample)
@@ -215,45 +232,35 @@ public partial class App : Application
         if (IsExiting) return;
         IsExiting = true;
 
-        try
-        {
-            _monitor?.Dispose();
-        }
-        catch (Exception ex)
-        {
-            Log.Write("退出时释放监控失败", ex);
-        }
+        try { _monitor?.Dispose(); } catch (Exception ex) { Log.Write("退出时释放监控失败", ex); }
+        try { Settings.Save(); } catch (Exception ex) { Log.Write("退出时保存设置失败", ex); }
+        try { _proxyTraffic?.Dispose(); } catch (Exception ex) { Log.Write("退出时释放代理统计失败", ex); }
+        try { _taskbar?.Dispose(); } catch (Exception ex) { Log.Write("退出时关闭任务栏条失败", ex); }
+        try { _floating?.Close(); } catch (Exception ex) { Log.Write("退出时关闭悬浮窗失败", ex); }
+        try { _main?.Close(); } catch (Exception ex) { Log.Write("退出时关闭主窗口失败", ex); }
 
-        Settings.Save();
-
-        _proxyTraffic?.Dispose();
         _proxyTraffic = null;
-
-        _taskbar?.Dispose();
         _taskbar = null;
-
-        _floating?.Close();
         _floating = null;
-
-        _main?.Close();
         _main = null;
 
-        _showWait?.Unregister(null);
-        _showEvent?.Dispose();
+        try { _showWait?.Unregister(null); } catch { }
+        try { _showEvent?.Dispose(); } catch { }
+        try { _exitWait?.Unregister(null); } catch { }
+        try { _exitEvent?.Dispose(); } catch { }
 
-        try
-        {
-            _mutex?.ReleaseMutex();
-        }
-        catch
-        {
-            // not owned
-        }
-
-        _mutex?.Dispose();
+        try { _mutex?.ReleaseMutex(); } catch { }
+        try { _mutex?.Dispose(); } catch { }
         _mutex = null;
 
-        Exit();
+        try { Exit(); } catch { }
+
+        // Last-resort guard: some WinUI/tray teardown paths can leave the process alive.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2));
+            Environment.Exit(0);
+        });
     }
 
     private static void SignalExistingInstance()
@@ -261,6 +268,19 @@ public partial class App : Application
         try
         {
             using var handle = EventWaitHandle.OpenExisting(ShowEventName);
+            handle.Set();
+        }
+        catch
+        {
+            // first instance is already gone
+        }
+    }
+
+    private static void SignalExitExistingInstance()
+    {
+        try
+        {
+            using var handle = EventWaitHandle.OpenExisting(ExitEventName);
             handle.Set();
         }
         catch

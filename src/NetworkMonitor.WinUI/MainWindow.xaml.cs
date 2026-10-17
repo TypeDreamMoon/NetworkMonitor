@@ -811,5 +811,9 @@ public sealed partial class MainWindow : Window
 
     private void TrayStartup_Click(object sender, RoutedEventArgs e) => App.Instance.SetStartup(!_settings.LaunchAtStartup);
 
-    private void TrayExit_Click(object sender, RoutedEventArgs e) => App.Instance.ExitApplication();
+    private void TrayExit_Click(object sender, RoutedEventArgs e)
+    {
+        // Let the tray menu click finish before disposing the tray icon.
+        DispatcherQueue.TryEnqueue(() => App.Instance.ExitApplication());
+    }
 }

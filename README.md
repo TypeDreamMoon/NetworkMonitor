@@ -13,7 +13,7 @@ Windows 网速与流量监控，常驻托盘 / 悬浮窗 / 任务栏。
 - **刷新速度**：1 / 2 / 5 秒可选，作用于网速、应用流量和界面刷新
 - 系统托盘常驻：左键打开主界面，右键菜单切换悬浮窗 / 任务栏条 / 开机自启
 - 桌面悬浮小窗：可拖动，双击打开主界面
-- 任务栏网速条：贴在通知区域左侧，亚克力底
+- 任务栏网速条：贴在通知区域左侧，原生 layered window，只画文字、完全透明无背景
 - 亚克力背景 + 圆角卡片，设置面板用 CommunityToolkit 的 `SettingsCard`
 - 开机自启（`HKCU\...\Run`，不需要管理员权限）
 
@@ -117,7 +117,7 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 
 ## 版本、CI 与自动更新
 
-当前版本 **1.1.1**，显示在「设置 → 版本」。
+当前版本 **1.1.2**，显示在「设置 → 版本」。
 
 ### CI
 
@@ -134,8 +134,8 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 仓库地址已配置为 `https://github.com/TypeDreamMoon/NetworkMonitor`。CI 会把 `RepositoryUrl` 覆盖成当前仓库。发布命令：
 
 ```powershell
-git tag v1.1.2
-git push origin v1.1.2
+git tag v1.1.3
+git push origin v1.1.3
 ```
 
 ### 自动更新
