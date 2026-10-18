@@ -15,7 +15,7 @@ Windows 网速与流量监控，常驻托盘 / 悬浮窗 / 任务栏。
 - 桌面悬浮小窗：可拖动，双击打开主界面
 - 任务栏网速条：贴在通知区域左侧，原生 layered window，只画文字、完全透明无背景
 - 亚克力背景 + 圆角卡片，设置面板用 CommunityToolkit 的 `SettingsCard`
-- 开机自启（`HKCU\...\Run`，不需要管理员权限）
+- 开机自启（`HKCU\...\Run`，不需要管理员权限；后台服务由 SCM 自启，注册时需要一次管理员权限）
 
 ## 应用流量（FlClash / Clash Verge Rev）
 
@@ -54,11 +54,36 @@ Windows 网速与流量监控，常驻托盘 / 悬浮窗 / 任务栏。
 - 已处理：网卡禁用重启用导致计数器归零（丢弃该区间）、休眠唤醒时间跳变、Wi-Fi/有线切换
 - **总计从第一次运行开始累计**，不是 Windows「数据使用量」的历史数据
 
+## 后台服务（前后端分离）
+
+v1.2.0 起，采样、SQLite 台账、Clash 轮询都跑在独立的 Windows 服务里，WinUI 只是前端：
+
+```text
+NetworkMonitor.Service.exe   (LocalSystem，由 SCM 开机自启)
+  GetIfTable2 采样           -> minute_usage
+  Clash /connections 轮询     -> proxy_usage
+  Kestrel 127.0.0.1:7788 + token
+              ^ HTTP
+NetworkMonitor.exe           (托盘 / 悬浮窗 / 任务栏条 / 设置，只调 API)
+```
+
+- 关掉界面也在统计：注销、未登录、界面未启动都不影响台账
+- 注册一次需要管理员权限：设置 → 后台统计服务 → 安装 / 启动（会弹 UAC）；也可以直接
+  `NetworkMonitor.Service.exe --install`（`--uninstall` 卸载、`--status` 看状态）
+- 之后由 SCM 自动启动；托盘界面仍然是原来的 `HKCU\...\Run` + `--minimized`
+- 鉴权：`%ProgramData%\NetworkMonitor\service.token`（首次运行生成，服务和界面自动读取），请求头 `X-NetworkMonitor-Token`；Kestrel 只绑 `127.0.0.1`，浏览器跨站请求也过不了自定义头预检
+- 端口默认 `7788`，可用 `NETWORKMONITOR_SERVICE_PORT` 覆盖
+- 数据目录迁到 `%ProgramData%\NetworkMonitor`（服务账号是 LocalSystem，用不了用户级 APPDATA）；首次启动会自动复制旧 `%APPDATA%\NetworkMonitor` 里的 db 和 settings，旧目录保留不动
+- `settings.json` 仍由界面单写，服务只读，避免两个进程互相覆盖；界面上的网卡/刷新间隔/代理/倍率改动通过 API 推给服务
+- API（全部需要 token）：`GET /api/health`、`GET /api/live`（速率 + 网卡 + 选中项 + Clash 快照 + 倍率）、`GET /api/usage`、`GET /api/proxy/report?scope=Today|Week|Month`、`POST /api/interfaces/select|auto`、`POST /api/refresh-interval`、`POST /api/proxy/config|refresh|multiplier`
+- 服务以 LocalSystem 运行，后续可以直接用 ETW `Microsoft-Windows-Kernel-Network` 做全系统按进程统计（当前应用流量仍只覆盖经过 Clash 的连接）
+
 ## 技术栈
 
 | 层 | 选型 |
 |---|---|
 | UI | .NET 10 + WinUI 3 / Windows App SDK 1.8（非打包） |
+| 后台服务 | .NET 10 Worker + Kestrel，Windows 服务（LocalSystem），只监听 `127.0.0.1` |
 | 控件 | [CommunityToolkit.WinUI.Controls](https://github.com/CommunityToolkit/Windows)（Segmented / SettingsCard） |
 | 托盘 | [H.NotifyIcon.WinUI](https://github.com/HavenDV/H.NotifyIcon) |
 | 存储 | Microsoft.Data.Sqlite（WAL 模式，分钟粒度台账） |
@@ -66,7 +91,7 @@ Windows 网速与流量监控，常驻托盘 / 悬浮窗 / 任务栏。
 
 ## 界面实现要点
 
-- 主窗口保留 DWM 边框/圆角/阴影，但去掉系统标题栏（`SetBorderAndTitleBar(true, false)`），最小化/关闭用自绘按钮；最大化被彻底禁用（移除 `WS_MAXIMIZEBOX` + 拦 `WM_GETMINMAXINFO` / `SC_MAXIMIZE` / 标题栏双击），避免最大化后自定义标题栏消失
+- 主窗口保留 DWM 边框/圆角/阴影，但去掉系统标题栏（`SetBorderAndTitleBar(true, false)`），最小化/关闭用自绘按钮；最大化禁用（移除 `WS_MAXIMIZEBOX` + 拦 `SC_MAXIMIZE` / 标题栏双击），但窗口可以拖 DWM 边缘缩放，最小 420×560 DIP；位置和尺寸（DIP）记在 `settings.json` 的 `MainLeft/MainTop/MainWidth/MainHeight`，恢复时会夹到当前显示器工作区内。**不要**再把 `WM_GETMINMAXINFO` 的 `MaxTrackSize` 设成「当前窗口尺寸」——`SetWindowPos` 会遵守它，启动时一旦比 `ResizeClient` 先到，窗口就会被锁死在系统最小尺寸（就是那个 160×39、只能看到半个标题栏的小窗），而且缩不回去；现在最小/最大尺寸按固定最小值和显示器工作区计算
 - 悬浮窗、任务栏条是**无边框窗口**。WinUI 的 `SetBorderAndTitleBar(false, false)` 会残留 `WS_DLGFRAME`，在深色桌面上表现为一圈白边；启动后清掉 `WS_CAPTION | WS_DLGFRAME | WS_THICKFRAME | WS_BORDER | WS_SYSMENU` 等 frame 位并发送 `SWP_FRAMECHANGED`，白边即消失
 - **任务栏条优先停靠**：`SetParent(Shell_TrayWnd)` + `WS_CHILD`，位置相对任务栏客户区计算，跟随任务栏移动/DPI/自动隐藏；挂载失败才回退到顶层覆盖窗口
 - 停靠后是子窗口，拿不到 DWM 亚克力，所以定位后采样任务栏的实际像素颜色并画同色背景，视觉上等于没有背景（主窗口和悬浮窗仍然保留亚克力）
@@ -78,10 +103,13 @@ Windows 网速与流量监控，常驻托盘 / 悬浮窗 / 任务栏。
 ## 项目结构
 
 ```
-src/NetworkMonitor.Core/     采样、台账、统计、MonitoringService（无 UI 依赖）
+src/NetworkMonitor.Core/     采样、台账、统计（无 UI 依赖）
   Proxy/                    Clash API 客户端、按进程/节点聚合、proxy_usage 台账
-src/NetworkMonitor.WinUI/    WinUI 3 界面、托盘、悬浮窗、任务栏条
+  Service/                  服务端点/令牌、API 契约、RemoteBackend（HTTP 客户端）
+src/NetworkMonitor.Service/ Windows 服务宿主：采样 + 台账 + Clash 轮询 + 本地 HTTP API
+src/NetworkMonitor.WinUI/    WinUI 3 界面、托盘、悬浮窗、任务栏条（只吃 API）
 src/NetworkMonitor.Console/  命令行对账工具（与系统计数器比对用）
+installer/NetworkMonitor.iss 安装包（UI + 服务 exe，需管理员权限）
 tools/make_icon.py     生成 Assets/networkmonitor.ico
 docs/screenshot.png
 ```
@@ -91,16 +119,27 @@ docs/screenshot.png
 ```powershell
 dotnet build NetworkMonitor.slnx -c Release -p:Platform=x64
 
+# 1) 后台服务（开发时前台跑，日志直接输出）
+.\src\NetworkMonitor.Service\bin\Release\net10.0-windows\NetworkMonitor.Service.exe
+
+# 2) 界面
 .\src\NetworkMonitor.WinUI\bin\x64\Release\net10.0-windows10.0.26100.0\win-x64\NetworkMonitor.exe
 ```
 
-`--minimized` 参数可只启动托盘（开机自启项用的就是这个）。
+`--minimized` 参数可只启动托盘（开机自启项用的就是这个）。界面连不上服务时标题栏会显示「后台服务未连接」，在「设置 → 后台统计服务」里点「安装 / 启动」即可（弹 UAC），或手动以管理员运行：
 
-WinUI 非打包运行需要机器上装有 **Windows App Runtime 1.8**。要发给没装运行时的机器，用自包含发布：
+```powershell
+.\src\NetworkMonitor.Service\bin\Release\net10.0-windows\NetworkMonitor.Service.exe --install
+```
+
+WinUI 非打包运行需要机器上装有 **Windows App Runtime 1.8**。要发给没装运行时的机器，两个项目都自包含发布到同一目录（服务与界面共用运行时）：
 
 ```powershell
 dotnet publish src/NetworkMonitor.WinUI -c Release -p:Platform=x64 -r win-x64 `
   -p:WindowsAppSDKSelfContained=true -p:SelfContained=true -o dist
+
+dotnet publish src/NetworkMonitor.Service -c Release -r win-x64 `
+  --self-contained true -o dist
 ```
 
 ### 对账工具
@@ -117,7 +156,7 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 
 ## 版本、CI 与自动更新
 
-当前版本 **1.1.3**，显示在「设置 → 版本」。
+当前版本 **1.2.0**，显示在「设置 → 版本」。
 
 ### CI
 
@@ -127,15 +166,16 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 发布流程会：
 
 1. `dotnet publish` 自包含 `win-x64`（含 Windows App SDK，用户无需装运行时）
-2. 用 Inno Setup 生成**免管理员**安装包 `NetworkMonitor-Setup-<version>.exe`（安装到 `%LOCALAPPDATA%\Programs\NetworkMonitor`）
-3. 生成便携版 `NetworkMonitor-<version>-win-x64.zip`
-4. 创建 GitHub Release，附上安装包和 zip，并自动生成 release notes
+2. 再发布同样自包含的 `NetworkMonitor.Service.exe` 到同一目录（服务与 UI 共用运行时，避免重复几十 MB）
+3. 用 Inno Setup 生成安装包 `NetworkMonitor-Setup-<version>.exe`（安装到 `%LOCALAPPDATA%\Programs\NetworkMonitor`；因为要注册 LocalSystem 后台服务，安装程序需要管理员权限，升级时会先停服务再替换文件）
+4. 生成便携版 `NetworkMonitor-<version>-win-x64.zip`
+5. 创建 GitHub Release，附上安装包和 zip，并自动生成 release notes
 
 仓库地址已配置为 `https://github.com/TypeDreamMoon/NetworkMonitor`。CI 会把 `RepositoryUrl` 覆盖成当前仓库。发布命令：
 
 ```powershell
-git tag v1.1.4
-git push origin v1.1.4
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
 ### 自动更新
@@ -150,13 +190,14 @@ git push origin v1.1.4
 
 ## 数据位置
 
-`%APPDATA%\NetworkMonitor\`
+`%ProgramData%\NetworkMonitor\`（便携模式或 `NETWORKMONITOR_HOME` 除外）
 
 - `networkmonitor.db` — 分钟级流量台账（自首次运行起长期保留，一年约 15 MB）
 - `settings.json` — 界面与网卡选择
+- `service.token` — 本地 API 令牌
 - `networkmonitor.log` — 异常日志
 
-便携模式：exe 同目录放一个 `portable.txt`，或设置环境变量 `NETWORKMONITOR_HOME`。
+便携模式：exe 同目录放一个 `portable.txt`，或设置环境变量 `NETWORKMONITOR_HOME`。便携运行时没有 SCM 服务，需要手动前台启动 `NetworkMonitor.Service.exe`（两个 exe 放在同一目录、共享同一个 `portable.txt` / `NETWORKMONITOR_HOME`），界面才有数据。
 
 ## 已知限制 / 后续可做
 
@@ -164,8 +205,8 @@ git push origin v1.1.4
 - 停靠模式没有亚克力（DWM 系统背景不作用于子窗口），背景用任务栏主题色近似
 - 任务栏条不检测全屏应用（停靠模式下任务栏本身会随全屏隐藏；回退覆盖模式仍可能盖在全屏窗口上）
 - Win11 默认把新托盘图标放进溢出区，需要用户在任务栏设置里固定
-- 总计只覆盖 NetworkMonitor 运行期间。若要补系统级历史，可接 WinRT `NetworkUsage`（本机未验证）
-- 按进程统计未实现：下一步用 ETW `Microsoft-Windows-Kernel-Network`（事件带 PID）
+- 总计只覆盖 NetworkMonitor 服务运行期间。若要补系统级历史，可接 WinRT `NetworkUsage`（本机未验证）
+- 按进程统计未实现：下一步用 ETW `Microsoft-Windows-Kernel-Network`（事件带 PID；服务已是 LocalSystem，权限足够）
 - 可加：流量包配额提醒、运营商口径（1000 进制）切换、月账单日设置
 
 ## License

@@ -77,6 +77,51 @@ public static class ClashConfigLocator
         yield return (Path.Combine(profile, ".config", "clash", "config.yaml"), false);
         yield return (Path.Combine(appData, "io.github.clash-verge-rev.clash-verge-rev", "config.yaml"), false);
         yield return (Path.Combine(appData, "io.github.clash-verge-rev.clash-verge-rev", "clash-verge.yaml"), false);
+
+        // The background service runs as LocalSystem, so its own %APPDATA% is the system profile.
+        // Also look at real users' profiles; every candidate is still verified against the live API.
+        if (!IsSystemAccount()) yield break;
+
+        foreach (string user in EnumerateUserProfiles())
+        {
+            string userAppData = Path.Combine(user, "AppData", "Roaming");
+            yield return (Path.Combine(userAppData, "com.follow", "clash", "config.yaml"), false);
+            yield return (Path.Combine(userAppData, "com.follow", "clash", "shared_preferences.json"), true);
+            yield return (Path.Combine(userAppData, "clash", "config.yaml"), false);
+            yield return (Path.Combine(user, ".config", "clash", "config.yaml"), false);
+            yield return (Path.Combine(userAppData, "io.github.clash-verge-rev.clash-verge-rev", "config.yaml"), false);
+            yield return (Path.Combine(userAppData, "io.github.clash-verge-rev.clash-verge-rev", "clash-verge.yaml"), false);
+        }
+    }
+
+    private static bool IsSystemAccount() =>
+        string.Equals(Environment.UserName, "SYSTEM", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(Environment.UserName, "NETWORK SERVICE", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(Environment.UserName, "LOCAL SERVICE", StringComparison.OrdinalIgnoreCase);
+
+    private static IEnumerable<string> EnumerateUserProfiles()
+    {
+        string[] users;
+        try
+        {
+            users = Directory.GetDirectories(Path.Combine(Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\", "Users"));
+        }
+        catch
+        {
+            yield break;
+        }
+
+        foreach (string user in users)
+        {
+            string name = Path.GetFileName(user);
+            if (name.Equals("Public", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("Default", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("Default User", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("All Users", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            yield return user;
+        }
     }
 
     private static ClashEndpoint? ParseFlClashPreferences(string path)

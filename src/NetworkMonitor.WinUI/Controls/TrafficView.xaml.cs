@@ -19,7 +19,7 @@ public sealed partial class TrafficView : UserControl
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(3) };
     private readonly HashSet<string> _expanded = new(StringComparer.Ordinal);
 
-    private ProxyTrafficService? _service;
+    private IProxyTrafficSource? _service;
     private ProxyScope _scope = ProxyScope.Today;
     private bool _refreshing;
     private bool _editingMultiplier;
@@ -40,7 +40,7 @@ public sealed partial class TrafficView : UserControl
     public void SetRefreshInterval(int seconds) =>
         _timer.Interval = TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 10));
 
-    public void Attach(ProxyTrafficService service)
+    public void Attach(IProxyTrafficSource service)
     {
         _service = service;
         if (IsLoaded) _ = RefreshAsync();
@@ -450,10 +450,10 @@ public sealed partial class TrafficView : UserControl
             Placement = FlyoutPlacementMode.BottomEdgeAlignedRight,
         };
 
-        save.Click += (_, _) =>
+        save.Click += async (_, _) =>
         {
             double value = double.IsNaN(box.Value) ? 1 : Math.Max(0, box.Value);
-            _service.SetNodeMultiplier(node, value);
+            await _service.SetNodeMultiplierAsync(node, value);
             flyout.Hide();
         };
 

@@ -55,6 +55,16 @@ jobs:
             -p:RepositoryUrl=https://github.com/${{ github.repository }} `
             -o publish
 
+      - name: Publish service (self-contained)
+        shell: pwsh
+        run: |
+          dotnet publish src/NetworkMonitor.Service/NetworkMonitor.Service.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:Version=${{ steps.version.outputs.value }} `
+            -o publish
+
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y

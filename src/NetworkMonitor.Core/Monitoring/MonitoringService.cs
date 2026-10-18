@@ -8,7 +8,7 @@ namespace NetworkMonitor.Core.Monitoring;
 /// UI-agnostic monitoring host: samples the NIC counters every second, writes the minute ledger,
 /// and raises events through the supplied post delegate (so callers can marshal to their UI thread).
 /// </summary>
-public sealed class MonitoringService : IDisposable
+public sealed class MonitoringService : IMonitoringSource
 {
     private readonly Action<Action> _post;
     private readonly Timer _timer;
@@ -42,6 +42,8 @@ public sealed class MonitoringService : IDisposable
     public TrafficMeter Meter { get; }
     public TrafficRecorder Recorder { get; }
     public UsageService Usage { get; }
+
+    public bool IsOnline => true;
 
     public IReadOnlyList<InterfaceSnapshot> Interfaces => _interfaces;
     public IReadOnlyList<string> SelectedKeys => _keys;

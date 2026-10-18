@@ -233,6 +233,16 @@
                                     <ToggleSwitch x:Name="StartupSwitch" OnContent="" OffContent=""
                                                   Toggled="StartupSwitch_Toggled" />
                                 </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="后台统计服务" Description="独立 Windows 服务常驻采样与台账，界面只负责显示">
+                                    <StackPanel Spacing="6" Width="190">
+                                        <TextBlock x:Name="ServiceStatusText" Text="检查中…" Style="{StaticResource MutedText}"
+                                                   TextWrapping="Wrap" />
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Button Content="安装 / 启动" Click="InstallService_Click" />
+                                            <Button Content="刷新" Click="RefreshServiceStatus_Click" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </toolkit:SettingsCard>
                                 <Border Style="{StaticResource Card}">
                                     <StackPanel Spacing="8">
                                         <Grid>

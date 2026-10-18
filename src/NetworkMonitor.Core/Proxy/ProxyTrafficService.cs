@@ -62,7 +62,7 @@ public sealed record ProxyTrafficSnapshot(
 /// (process, proxy node). This covers traffic that actually passed through the proxy;
 /// direct traffic never appears in the Clash API.
 /// </summary>
-public sealed class ProxyTrafficService : IDisposable
+public sealed class ProxyTrafficService : IProxyTrafficSource
 {
     private sealed class AppAccumulator
     {
@@ -137,6 +137,12 @@ public sealed class ProxyTrafficService : IDisposable
     {
         _settings.NodeMultipliers ??= new Dictionary<string, double>(StringComparer.Ordinal);
         return _settings.NodeMultipliers.TryGetValue(node, out var value) ? value : 1.0;
+    }
+
+    public Task SetNodeMultiplierAsync(string node, double value)
+    {
+        SetNodeMultiplier(node, value);
+        return Task.CompletedTask;
     }
 
     public void SetNodeMultiplier(string node, double value)

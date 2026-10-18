@@ -14,6 +14,7 @@ using NetworkMonitor.Core.Monitoring;
 using NetworkMonitor.Core.Proxy;
 using NetworkMonitor.WinUI.Controls;
 using NetworkMonitor.Core.Sampling;
+using NetworkMonitor.Core.Service;
 using NetworkMonitor.Core.Storage;
 using NetworkMonitor.WinUI.Interop;
 using NetworkMonitor.WinUI.Services;
@@ -25,7 +26,14 @@ public sealed partial class MainWindow : Window
 {
     private const int HistoryCapacity = 120;
 
-    private readonly MonitoringService _monitor;
+    // Minimum window size in DIP. Also enforced by WM_GETMINMAXINFO, so a broken
+    // size can never be persisted and re-used on the next launch.
+    private const int MinWindowWidthDip = 420;
+    private const int MinWindowHeightDip = 560;
+    private const int DefaultWindowWidthDip = 520;
+    private const int DefaultWindowHeightDip = 800;
+
+    private readonly IMonitoringSource _monitor;
     private readonly AppSettings _settings;
     private readonly List<double> _downHistory = new(HistoryCapacity);
     private readonly List<double> _upHistory = new(HistoryCapacity);
@@ -58,7 +66,13 @@ public sealed partial class MainWindow : Window
     private bool _syncingCombo;
     private bool _syncingToggles;
 
-    public MainWindow(MonitoringService monitor, AppSettings settings)
+    private readonly DispatcherTimer _boundsTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private SizeInt32 _initialSize;
+    private PointInt32 _initialPosition;
+    private bool _initialUsesOuterSize;
+    private bool _boundsReady;
+
+    public MainWindow(IMonitoringSource monitor, AppSettings settings)
     {
         InitializeComponent();
 
@@ -68,6 +82,9 @@ public sealed partial class MainWindow : Window
             Native.SetDarkBorder(this);
             PreventMaximize();
 
+            // AppWindow.ResizeClient can race with the first layout pass; re-apply once
+            // the window is loaded so a stale/default size can never win.
+            ApplyInitialBounds();
             if (_pendingTrafficPage) Navigate(PageMode.Traffic);
         };
 
@@ -76,11 +93,20 @@ public sealed partial class MainWindow : Window
             if (args.DidSizeChange || args.DidVisibilityChange)
                 PreventMaximize();
 
+            if (args.DidPositionChange || args.DidSizeChange)
+                ScheduleBoundsSave();
+
             if (AppWindow.Presenter is OverlappedPresenter presenter
                 && presenter.State == OverlappedPresenterState.Maximized)
             {
                 presenter.Restore();
             }
+        };
+
+        _boundsTimer.Tick += (_, _) =>
+        {
+            _boundsTimer.Stop();
+            PersistBounds();
         };
 
         _monitor = monitor;
@@ -97,6 +123,7 @@ public sealed partial class MainWindow : Window
 
         RebuildInterfaceCombo();
         SyncToggles();
+        UpdateServiceStatus();
 
         ProxyControllerBox.Text = _settings.ClashController ?? string.Empty;
         ProxySecretBox.Password = _settings.ClashSecret ?? string.Empty;
@@ -144,10 +171,12 @@ public sealed partial class MainWindow : Window
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
             // Keep the DWM border (rounded corners + shadow) but drop the system title bar
-            // entirely, so there is no maximize button at all.
+            // entirely, so there is no maximize button at all. The window stays resizable
+            // by dragging its DWM edges.
             presenter.SetBorderAndTitleBar(true, false);
-            presenter.IsResizable = false;
+            presenter.IsResizable = true;
             presenter.IsMaximizable = false;
+            presenter.IsMinimizable = true;
         }
 
         try
@@ -163,12 +192,80 @@ public sealed partial class MainWindow : Window
         double scale = Native.GetDpiForWindow(hwnd) / 96.0;
         if (scale <= 0) scale = 1;
 
-        int width = (int)(520 * scale);
-        int height = (int)(800 * scale);
-        AppWindow.ResizeClient(new SizeInt32(width, height));
+        int width = (int)Math.Round(DefaultWindowWidthDip * scale);
+        int height = (int)Math.Round(DefaultWindowHeightDip * scale);
+        bool hasSavedSize = false;
 
-        var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
-        AppWindow.Move(new PointInt32(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2));
+        // Stored as the outer window size in DIP, so the round trip is exact.
+        if (_settings.MainWidth is double savedWidth && _settings.MainHeight is double savedHeight
+            && savedWidth >= MinWindowWidthDip && savedHeight >= MinWindowHeightDip)
+        {
+            width = (int)Math.Round(savedWidth * scale);
+            height = (int)Math.Round(savedHeight * scale);
+            hasSavedSize = true;
+        }
+
+        var primary = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+        int x = _settings.MainLeft is double savedLeft
+            ? (int)Math.Round(savedLeft)
+            : primary.X + (primary.Width - width) / 2;
+        int y = _settings.MainTop is double savedTop
+            ? (int)Math.Round(savedTop)
+            : primary.Y + (primary.Height - height) / 2;
+
+        // Restored bounds may point at a monitor that no longer exists / changed resolution.
+        var area = DisplayArea.GetFromPoint(new PointInt32(x, y), DisplayAreaFallback.Nearest).WorkArea;
+        width = Math.Clamp(width, (int)Math.Round(MinWindowWidthDip * scale), area.Width);
+        height = Math.Clamp(height, (int)Math.Round(MinWindowHeightDip * scale), area.Height);
+        x = Math.Clamp(x, area.X, Math.Max(area.X, area.X + area.Width - width));
+        y = Math.Clamp(y, area.Y, Math.Max(area.Y, area.Y + area.Height - height));
+
+        _initialSize = new SizeInt32(width, height);
+        _initialPosition = new PointInt32(x, y);
+        _initialUsesOuterSize = hasSavedSize;
+        ApplyInitialBounds(ready: false);
+    }
+
+    private void ApplyInitialBounds(bool ready = true)
+    {
+        if (_initialUsesOuterSize) AppWindow.Resize(_initialSize);
+        else AppWindow.ResizeClient(_initialSize);
+
+        AppWindow.Move(_initialPosition);
+        if (ready) _boundsReady = true;
+    }
+
+    private void ScheduleBoundsSave()
+    {
+        if (!_boundsReady) return;
+        _boundsTimer.Stop();
+        _boundsTimer.Start();
+    }
+
+    private void PersistBounds()
+    {
+        if (!_boundsReady) return;
+
+        try
+        {
+            var size = AppWindow.Size;
+            // Ignore leftovers from a transient/default layout pass; anything smaller
+            // than half the minimum is not a real user size.
+            if (size.Width < MinWindowWidthDip / 2 || size.Height < MinWindowHeightDip / 2) return;
+
+            double scale = Native.GetDpiForWindow(Native.Handle(this)) / 96.0;
+            if (scale <= 0) scale = 1;
+
+            _settings.MainWidth = size.Width / scale;
+            _settings.MainHeight = size.Height / scale;
+            _settings.MainLeft = AppWindow.Position.X;
+            _settings.MainTop = AppWindow.Position.Y;
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            Log.Write("保存窗口位置失败", ex);
+        }
     }
 
     private void PreventMaximize()
@@ -203,23 +300,49 @@ public sealed partial class MainWindow : Window
                 return IntPtr.Zero;
 
             case WmGetMinMaxInfo:
-                ClampMaxTrackSize(hwnd, lParam);
+                ApplyTrackSize(hwnd, lParam);
                 break;
         }
 
         return Native.CallPreviousWindowProc(_previousWindowProc, hwnd, message, wParam, lParam);
     }
 
-    private static void ClampMaxTrackSize(IntPtr hwnd, IntPtr lParam)
+    /// <summary>
+    /// MaxTrackSize used to be clamped to the *current* rect. SetWindowPos honours
+    /// ptMaxTrackSize, so if this message arrived before/while the startup ResizeClient
+    /// ran, the window was locked to the system minimum size (the tiny 160x39 window)
+    /// and, with IsResizable=false, could never be fixed. Derive the limits from the
+    /// monitor work area and a fixed minimum instead.
+    /// </summary>
+    private static void ApplyTrackSize(IntPtr hwnd, IntPtr lParam)
     {
-        if (!Native.GetWindowRect(hwnd, out var rect) || rect.Width <= 0 || rect.Height <= 0)
-            return;
+        double scale = Native.GetDpiForWindow(hwnd) / 96.0;
+        if (scale <= 0) scale = 1;
+
+        int minWidth = (int)Math.Round(MinWindowWidthDip * scale);
+        int minHeight = (int)Math.Round(MinWindowHeightDip * scale);
+        int maxWidth = minWidth;
+        int maxHeight = minHeight;
+
+        IntPtr monitor = Native.MonitorFromWindow(hwnd, 2 /* MONITOR_DEFAULTTOPRIMARY */);
+        if (monitor != IntPtr.Zero)
+        {
+            var monitorInfo = new Native.MONITORINFO { cbSize = Marshal.SizeOf<Native.MONITORINFO>() };
+            if (Native.GetMonitorInfo(monitor, ref monitorInfo))
+            {
+                var work = monitorInfo.rcWork;
+                maxWidth = Math.Max(minWidth, work.Right - work.Left);
+                maxHeight = Math.Max(minHeight, work.Bottom - work.Top);
+            }
+        }
 
         var info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
-        info.MaxSize.X = rect.Width;
-        info.MaxSize.Y = rect.Height;
-        info.MaxTrackSize.X = rect.Width;
-        info.MaxTrackSize.Y = rect.Height;
+        info.MinTrackSize.X = minWidth;
+        info.MinTrackSize.Y = minHeight;
+        info.MaxSize.X = maxWidth;
+        info.MaxSize.Y = maxHeight;
+        info.MaxTrackSize.X = maxWidth;
+        info.MaxTrackSize.Y = maxHeight;
         Marshal.StructureToPtr(info, lParam, false);
     }
 
@@ -259,6 +382,7 @@ public sealed partial class MainWindow : Window
 
     private void OnWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
+        PersistBounds();
         if (App.Instance.IsExiting) return;
         args.Cancel = true;
         sender.Hide();
@@ -277,7 +401,9 @@ public sealed partial class MainWindow : Window
         DownSpark.SetValues(_downHistory.ToArray());
         UpSpark.SetValues(_upHistory.ToArray());
 
-        StatusText.Text = _monitor.SelectedKeys.Count > 0 ? "实时监控" : "无活动网卡";
+        StatusText.Text = !_monitor.IsOnline
+            ? "后台服务未连接"
+            : _monitor.SelectedKeys.Count > 0 ? "实时监控" : "无活动网卡";
 
         try
         {
@@ -463,6 +589,7 @@ public sealed partial class MainWindow : Window
                 break;
             case PageMode.Settings:
                 SettingsScroll.ChangeView(null, 0, null);
+                UpdateServiceStatus();
                 break;
             default:
                 _ = RefreshHomeTrafficAsync();
@@ -747,12 +874,10 @@ public sealed partial class MainWindow : Window
     private void ProxySave_Click(object sender, RoutedEventArgs e)
     {
         string? controller = ProxyControllerBox.Text.Trim();
-        _settings.ClashController = string.IsNullOrEmpty(controller) ? null : controller;
-        _settings.ClashSecret = string.IsNullOrEmpty(ProxySecretBox.Password) ? null : ProxySecretBox.Password;
-        _settings.ClashAutoDetect = string.IsNullOrEmpty(controller);
-        _settings.Save();
+        string? secret = string.IsNullOrEmpty(ProxySecretBox.Password) ? null : ProxySecretBox.Password;
 
-        App.Instance.RefreshProxy();
+        App.Instance.Backend?.ApplyProxyConfig(
+            string.IsNullOrEmpty(controller) ? null : controller, secret);
         ProxyStatusText.Text = "已保存，等待连接…";
     }
 
@@ -760,6 +885,25 @@ public sealed partial class MainWindow : Window
     {
         App.Instance.RefreshProxy();
         ProxyStatusText.Text = "正在重新检测…";
+    }
+
+    // ---------- background service ----------
+
+    private void RefreshServiceStatus_Click(object sender, RoutedEventArgs e) => UpdateServiceStatus();
+
+    private async void InstallService_Click(object sender, RoutedEventArgs e)
+    {
+        ServiceStatusText.Text = "正在请求管理员权限…";
+        ServiceStatusText.Text = await App.Instance.InstallServiceAsync();
+        await Task.Delay(1200);
+        UpdateServiceStatus();
+    }
+
+    private void UpdateServiceStatus()
+    {
+        ServiceStatusText.Text = App.Instance.ServiceOnline
+            ? $"已连接 {ServiceConfig.BaseAddress}"
+            : "后台服务未运行：点「安装 / 启动」后会弹出 UAC。";
     }
 
     // ---------- window chrome ----------

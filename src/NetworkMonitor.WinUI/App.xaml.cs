@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using NetworkMonitor.Core.Configuration;
@@ -5,6 +6,7 @@ using NetworkMonitor.Core.Formatting;
 using NetworkMonitor.Core.Monitoring;
 using NetworkMonitor.Core.Proxy;
 using NetworkMonitor.Core.Sampling;
+using NetworkMonitor.Core.Service;
 using NetworkMonitor.Core.Storage;
 using NetworkMonitor.WinUI.Services;
 
@@ -23,8 +25,7 @@ public partial class App : Application
     private EventWaitHandle? _exitEvent;
     private RegisteredWaitHandle? _exitWait;
 
-    private MonitoringService? _monitor;
-    private ProxyTrafficService? _proxyTraffic;
+    private RemoteBackend? _backend;
     private MainWindow? _main;
     private FloatingWindow? _floating;
     private TaskbarOverlay? _taskbar;
@@ -80,14 +81,11 @@ public partial class App : Application
         Settings.LaunchAtStartup = StartupRegistration.IsEnabled();
         if (Settings.LaunchAtStartup) StartupRegistration.Set(true);
 
-        _monitor = new MonitoringService(Settings, action => _queue.TryEnqueue(() => action()));
-        _monitor.Initialize();
-        _monitor.SpeedTick += OnSpeed;
+        _backend = new RemoteBackend(Settings, action => _queue.TryEnqueue(() => action()));
+        _backend.Start();
+        _backend.SpeedTick += OnSpeed;
 
-        _proxyTraffic = new ProxyTrafficService(Settings, action => _queue.TryEnqueue(() => action()));
-        _proxyTraffic.Start();
-
-        _main = new MainWindow(_monitor, Settings);
+        _main = new MainWindow(_backend, Settings);
         _main.Activate();
 
         if (Settings.ShowFloatingWindow) SetFloatingVisible(true);
@@ -145,8 +143,12 @@ public partial class App : Application
         _taskbar?.SetSpeed(sample);
     }
 
-    public ProxyTrafficService ProxyTraffic =>
-        _proxyTraffic ?? throw new InvalidOperationException("proxy traffic service is not ready");
+    public IProxyTrafficSource ProxyTraffic =>
+        _backend ?? throw new InvalidOperationException("background service client is not ready");
+
+    public bool ServiceOnline => _backend?.IsOnline ?? false;
+
+    public RemoteBackend? Backend => _backend;
 
     public void ShowTrafficWindow()
     {
@@ -154,11 +156,11 @@ public partial class App : Application
         _main?.ShowTrafficTab();
     }
 
-    public void RefreshProxy() => _proxyTraffic?.RefreshEndpoint();
+    public void RefreshProxy() => _backend?.RefreshEndpoint();
 
     public void ApplyRefreshInterval(int seconds)
     {
-        _monitor?.SetRefreshInterval(seconds);
+        _backend?.SetRefreshInterval(seconds);
         _main?.SetRefreshInterval(seconds);
     }
 
@@ -232,14 +234,13 @@ public partial class App : Application
         if (IsExiting) return;
         IsExiting = true;
 
-        try { _monitor?.Dispose(); } catch (Exception ex) { Log.Write("退出时释放监控失败", ex); }
+        try { _backend?.Dispose(); } catch (Exception ex) { Log.Write("退出时断开后台服务失败", ex); }
         try { Settings.Save(); } catch (Exception ex) { Log.Write("退出时保存设置失败", ex); }
-        try { _proxyTraffic?.Dispose(); } catch (Exception ex) { Log.Write("退出时释放代理统计失败", ex); }
         try { _taskbar?.Dispose(); } catch (Exception ex) { Log.Write("退出时关闭任务栏条失败", ex); }
         try { _floating?.Close(); } catch (Exception ex) { Log.Write("退出时关闭悬浮窗失败", ex); }
         try { _main?.Close(); } catch (Exception ex) { Log.Write("退出时关闭主窗口失败", ex); }
 
-        _proxyTraffic = null;
+        _backend = null;
         _taskbar = null;
         _floating = null;
         _main = null;
@@ -261,6 +262,72 @@ public partial class App : Application
             await Task.Delay(TimeSpan.FromSeconds(2));
             Environment.Exit(0);
         });
+    }
+
+    /// <summary>
+    /// Path of the service executable: next to the UI in installer/publish layouts, or in the
+    /// sibling project's output folder when running from a development build.
+    /// </summary>
+    public string? FindServiceExecutable()
+    {
+        foreach (string direct in new[]
+                 {
+                     Path.Combine(AppContext.BaseDirectory, "NetworkMonitor.Service.exe"),
+                     Path.Combine(AppContext.BaseDirectory, "service", "NetworkMonitor.Service.exe"),
+                 })
+        {
+            if (File.Exists(direct)) return direct;
+        }
+
+        DirectoryInfo? dir = new(AppContext.BaseDirectory);
+        for (int depth = 0; depth < 7 && dir is not null; depth++, dir = dir.Parent)
+        {
+            foreach (string configuration in new[] { "Release", "Debug" })
+            {
+                foreach (string platform in new[] { "x64", "" })
+                {
+                    string path = Path.Combine(dir.FullName, "NetworkMonitor.Service", "bin", platform,
+                        configuration, "net10.0-windows", "NetworkMonitor.Service.exe");
+                    if (File.Exists(path)) return path;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Runs the service installer elevated (UAC). Returns a user-facing status line.</summary>
+    public async Task<string> InstallServiceAsync()
+    {
+        string? exe = FindServiceExecutable();
+        if (exe is null) return "找不到 NetworkMonitor.Service.exe，请先执行 dotnet publish 或重新安装。";
+
+        try
+        {
+            var info = new ProcessStartInfo(exe, "--install")
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+                WorkingDirectory = Path.GetDirectoryName(exe) ?? AppContext.BaseDirectory,
+            };
+
+            using var process = Process.Start(info);
+            if (process is null) return "无法启动安装程序。";
+
+            await process.WaitForExitAsync();
+            return process.ExitCode == 0
+                ? "后台服务已安装并启动。"
+                : $"安装未完成（退出码 {process.ExitCode}），可在命令行用 --install 查看详情。";
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return "已取消安装（需要管理员权限）。";
+        }
+        catch (Exception ex)
+        {
+            Log.Write("安装后台服务失败", ex);
+            return "安装后台服务失败：" + ex.Message;
+        }
     }
 
     private static void SignalExistingInstance()

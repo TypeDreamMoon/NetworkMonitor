@@ -37,6 +37,21 @@ public sealed class AppSettings
     public double? FloatingLeft { get; set; }
     public double? FloatingTop { get; set; }
 
+    /// <summary>Main window position in physical pixels (top-left of the window).</summary>
+    public double? MainLeft { get; set; }
+    public double? MainTop { get; set; }
+
+    /// <summary>Main window client size in DIP, so it survives DPI changes between monitors.</summary>
+    public double? MainWidth { get; set; }
+    public double? MainHeight { get; set; }
+
+    /// <summary>
+    /// When false, <see cref="Save"/> is a no-op. The service loads the UI-owned settings file
+    /// read-only so the two processes never fight over the same JSON document.
+    /// </summary>
+    [JsonIgnore]
+    public bool PersistOnSave { get; set; } = true;
+
     [JsonIgnore]
     public IReadOnlyList<string> SelectedKeyList =>
         string.IsNullOrWhiteSpace(SelectedKeys)
@@ -67,6 +82,8 @@ public sealed class AppSettings
 
     public void Save(string? path = null)
     {
+        if (!PersistOnSave) return;
+
         path ??= AppPaths.SettingsPath;
         try
         {
