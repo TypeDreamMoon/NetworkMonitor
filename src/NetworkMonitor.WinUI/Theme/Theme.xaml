@@ -12,8 +12,6 @@
     <SolidColorBrush x:Key="UpBrush" Color="#FFB454" />
     <SolidColorBrush x:Key="AccentBrush" Color="#5B9DFF" />
     <SolidColorBrush x:Key="DividerBrush" Color="#1AFFFFFF" />
-    <SolidColorBrush x:Key="NavRailBrush" Color="#0CFFFFFF" />
-    <SolidColorBrush x:Key="NavSelectedBrush" Color="#1FFFFFFF" />
 
     <Style x:Key="Card" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource CardBackgroundBrush}" />
@@ -67,28 +65,6 @@
         <Setter Property="CornerRadius" Value="7" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
-    </Style>
-
-    <Style x:Key="NavItemButton" TargetType="Button">
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="CornerRadius" Value="9" />
-        <Setter Property="Padding" Value="0" />
-        <Setter Property="Height" Value="66" />
-        <Setter Property="HorizontalAlignment" Value="Stretch" />
-        <Setter Property="HorizontalContentAlignment" Value="Center" />
-        <Setter Property="VerticalContentAlignment" Value="Center" />
-    </Style>
-
-    <Style x:Key="NavToggleButton" TargetType="Button">
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="CornerRadius" Value="6" />
-        <Setter Property="Padding" Value="0" />
-        <Setter Property="Height" Value="28" />
-        <Setter Property="HorizontalAlignment" Value="Stretch" />
-        <Setter Property="HorizontalContentAlignment" Value="Center" />
-        <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 
     <Style x:Key="PillButton" TargetType="Button">

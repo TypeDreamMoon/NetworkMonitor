@@ -110,7 +110,7 @@ NetworkMonitor.exe           (托盘 / 悬浮窗 / 任务栏条 / 设置，只�
 - **任务栏条优先停靠**：`SetParent(Shell_TrayWnd)` + `WS_CHILD`，位置相对任务栏客户区计算，跟随任务栏移动/DPI/自动隐藏；挂载失败才回退到顶层覆盖窗口
 - 停靠后是子窗口，拿不到 DWM 亚克力，所以定位后采样任务栏的实际像素颜色并画同色背景，视觉上等于没有背景（主窗口和悬浮窗仍然保留亚克力）
 - Explorer 重启会让父任务栏和子窗口一起销毁，此时**不能对旧 WinUI Window 调 `Close()`**（会崩 coreclr），而是丢弃旧对象、重建窗口再挂载
-- 卡片圆角 14、统计卡 12；首页 / 应用流量 / 进程流量 / 设置是四个页面，用左侧导航栏切换（默认展开 104px，点底部折叠按钮可收成 56px 图标条，状态写入 `settings.json` 的 `navCollapsed`），节点用两列卡片网格展示
+- 卡片圆角 14、统计卡 12；首页 / 应用流量 / 进程流量 / 设置是四个页面，用左侧导航栏切换（WinUI `NavigationView`，默认展开 148px、顶部汉堡按钮可收成 48px 图标栏，展开状态写入 `settings.json` 的 `navCollapsed`），节点用两列卡片网格展示
 - 图标使用 Bootstrap Icons（MIT）SVG，分类带独立颜色；实际流量用青色、计费流量用琥珀色，关键数字一眼可区分
 - 网卡选择与统计信息已移入设置面板，首页底部只保留功能内容
 
@@ -170,7 +170,7 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 
 ## 版本、CI 与自动更新
 
-当前版本 **1.5.0**，显示在「设置 → 版本」。
+当前版本 **1.6.0**，显示在「设置 → 版本」。
 
 ### CI
 
@@ -190,8 +190,8 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 仓库地址已配置为 `https://github.com/TypeDreamMoon/NetworkMonitor`。CI 会把 `RepositoryUrl` 覆盖成当前仓库。发布命令：
 
 ```powershell
-git tag v1.5.0
-git push origin v1.5.0
+git tag v1.6.0
+git push origin v1.6.0
 ```
 
 ### 自动更新

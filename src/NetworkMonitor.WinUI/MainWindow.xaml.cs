@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Windowing;
@@ -19,7 +19,6 @@ using NetworkMonitor.Core.Storage;
 using NetworkMonitor.WinUI.Interop;
 using NetworkMonitor.WinUI.Services;
 using Windows.Graphics;
-using Windows.UI;
 
 namespace NetworkMonitor.WinUI;
 
@@ -53,17 +52,7 @@ public sealed partial class MainWindow : Window
     private bool _pendingProcessPage;
     private bool _syncingRefresh;
     private PageMode _page = PageMode.Home;
-    private bool _navCollapsed;
-
-    private const double NavExpandedWidth = 104;
-    private const double NavCollapsedWidth = 56;
-    private const double NavItemExpandedHeight = 66;
-    private const double NavItemCollapsedHeight = 46;
-
-    private static readonly SolidColorBrush NavSelectedBackground = new(Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF));
-    private static readonly SolidColorBrush NavTransparentBackground = new(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF));
-    private static readonly SolidColorBrush NavSelectedLabel = new(Color.FromArgb(0xFF, 0xF2, 0xF6, 0xFC));
-    private static readonly SolidColorBrush NavNormalLabel = new(Color.FromArgb(0xFF, 0xA9, 0xB6, 0xCA));
+    private bool _navReady;
 
     private enum PageMode
     {
@@ -100,6 +89,11 @@ public sealed partial class MainWindow : Window
             ApplyInitialBounds();
             if (_pendingTrafficPage) Navigate(PageMode.Traffic);
             if (_pendingProcessPage) Navigate(PageMode.Process);
+
+            // Only start persisting pane state once the first layout pass is done:
+            // NavigationView reports a spurious PaneClosing while it materialises.
+            _navReady = true;
+
         };
 
         AppWindow.Changed += (_, args) =>
@@ -165,8 +159,8 @@ public sealed partial class MainWindow : Window
         ProcessPanel.Attach(App.Instance.ProcessTraffic);
         SetRefreshInterval(_settings.RefreshIntervalSeconds);
 
-        _navCollapsed = _settings.NavCollapsed;
-        ApplyNavLayout();
+        NavView.IsPaneOpen = !_settings.NavCollapsed;
+        SyncNavSelection();
         _homeTrafficTimer.Tick += async (_, _) => await RefreshHomeTrafficAsync();
         _homeTrafficTimer.Start();
         _ = RefreshHomeTrafficAsync();
@@ -564,60 +558,34 @@ public sealed partial class MainWindow : Window
     private void FloatButton_Click(object sender, RoutedEventArgs e) =>
         App.Instance.SetFloatingVisible(!_settings.ShowFloatingWindow);
 
-    private void Nav_Click(object sender, RoutedEventArgs e)
+    private void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
     {
-        if (sender is Button button
-            && button.Tag is string tag
-            && Enum.TryParse<PageMode>(tag, out var page))
-        {
+        if (args.InvokedItemContainer?.Tag is string tag && Enum.TryParse<PageMode>(tag, out var page))
             Navigate(page);
-        }
     }
 
-    private void NavToggle_Click(object sender, RoutedEventArgs e)
-    {
-        _navCollapsed = !_navCollapsed;
-        ApplyNavLayout();
+    private void NavView_PaneOpening(NavigationView sender, object args) => PersistPaneState(false);
 
-        _settings.NavCollapsed = _navCollapsed;
+    private void NavView_PaneClosing(NavigationView sender, NavigationViewPaneClosingEventArgs args) =>
+        PersistPaneState(true);
+
+    /// <summary>Remembers whether the user collapsed the navigation pane.</summary>
+    private void PersistPaneState(bool collapsed)
+    {
+        if (!_navReady || _settings.NavCollapsed == collapsed) return;
+
+        _settings.NavCollapsed = collapsed;
         _settings.Save();
     }
 
-    /// <summary>Applies the rail width and the collapsed/expanded item layout.</summary>
-    private void ApplyNavLayout()
-    {
-        NavColumn.Width = new GridLength(_navCollapsed ? NavCollapsedWidth : NavExpandedWidth);
-
-        TextBlock[] labels = [NavHomeLabel, NavTrafficLabel, NavProcessLabel, NavSettingsLabel];
-        foreach (var label in labels)
-            label.Visibility = _navCollapsed ? Visibility.Collapsed : Visibility.Visible;
-
-        Button[] items = [NavHome, NavTraffic, NavProcess, NavSettings];
-        foreach (var item in items)
-            item.Height = _navCollapsed ? NavItemCollapsedHeight : NavItemExpandedHeight;
-
-        string icon = _navCollapsed
-            ? "ms-appx:///Assets/Icons/nav_expand_A9B6CA.svg"
-            : "ms-appx:///Assets/Icons/nav_collapse_A9B6CA.svg";
-        NavToggleIcon.Source = new BitmapImage(new Uri(icon));
-        ToolTipService.SetToolTip(NavToggle, _navCollapsed ? "展开导航栏" : "收起导航栏");
-
-        UpdateNavSelection();
-    }
-
-    private void UpdateNavSelection()
-    {
-        ApplyNavItemState(NavHome, NavHomeBar, NavHomeLabel, _page == PageMode.Home);
-        ApplyNavItemState(NavTraffic, NavTrafficBar, NavTrafficLabel, _page == PageMode.Traffic);
-        ApplyNavItemState(NavProcess, NavProcessBar, NavProcessLabel, _page == PageMode.Process);
-        ApplyNavItemState(NavSettings, NavSettingsBar, NavSettingsLabel, _page == PageMode.Settings);
-    }
-
-    private static void ApplyNavItemState(Button button, Border bar, TextBlock label, bool selected)
-    {
-        button.Background = selected ? NavSelectedBackground : NavTransparentBackground;
-        bar.Opacity = selected ? 1 : 0;
-        label.Foreground = selected ? NavSelectedLabel : NavNormalLabel;
+    private void SyncNavSelection()
+    {        NavView.SelectedItem = _page switch
+        {
+            PageMode.Traffic => NavTrafficItem,
+            PageMode.Process => NavProcessItem,
+            PageMode.Settings => NavSettingsItem,
+            _ => NavHomeItem,
+        };
     }
 
     private void ShowTrafficPage_Click(object sender, RoutedEventArgs e) => ShowTrafficTab();
@@ -656,7 +624,7 @@ public sealed partial class MainWindow : Window
         ProcessScroll.Visibility = page == PageMode.Process ? Visibility.Visible : Visibility.Collapsed;
         SettingsScroll.Visibility = page == PageMode.Settings ? Visibility.Visible : Visibility.Collapsed;
 
-        UpdateNavSelection();
+        SyncNavSelection();
 
         switch (page)
         {
