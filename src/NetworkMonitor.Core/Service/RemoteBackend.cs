@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using NetworkMonitor.Core.Configuration;
 using NetworkMonitor.Core.Monitoring;
+using NetworkMonitor.Core.Process;
 using NetworkMonitor.Core.Proxy;
 using NetworkMonitor.Core.Sampling;
 using NetworkMonitor.Core.Storage;
@@ -19,7 +20,8 @@ public sealed record LiveState(
     string ProxyStatus,
     string? ProxyEndpoint,
     ProxyTrafficSnapshot ProxySnapshot,
-    IReadOnlyDictionary<string, double> Multipliers);
+    IReadOnlyDictionary<string, double> Multipliers,
+    ProcessTrafficSnapshot? ProcessSnapshot = null);
 
 public sealed record ServiceHealth(
     bool Ok,
@@ -36,6 +38,8 @@ public sealed record MultiplierRequest(string Node, double Value);
 
 public sealed record ProxyConfigRequest(string? Controller, string? Secret);
 
+public sealed record ProcessEnabledRequest(bool Enabled);
+
 public sealed record ApiError(string Message);
 
 internal static class ApiJson
@@ -50,7 +54,7 @@ internal static class ApiJson
 /// HTTP client for the loopback service. The UI talks to the service exclusively through this class;
 /// it never opens the SQLite ledger itself.
 /// </summary>
-public sealed class RemoteBackend : IMonitoringSource, IProxyTrafficSource
+public sealed class RemoteBackend : IMonitoringSource, IProxyTrafficSource, IProcessTrafficSource
 {
     private readonly AppSettings _settings;
     private readonly Action<Action> _post;
@@ -63,6 +67,7 @@ public sealed class RemoteBackend : IMonitoringSource, IProxyTrafficSource
     private string[] _selectedKeys = [];
     private bool _autoSelect = true;
     private ProxyTrafficSnapshot _snapshot = new(false, "未连接", null, 0, 0, [], []);
+    private ProcessTrafficSnapshot _processSnapshot = new(false, "未连接", 0, 0, [], 0);
     private Task? _loop;
     private volatile bool _online;
     private int _intervalSeconds = 1;
@@ -97,10 +102,15 @@ public sealed class RemoteBackend : IMonitoringSource, IProxyTrafficSource
 
     public string? Endpoint => _snapshot.Endpoint;
 
+    public bool IsCapturing => _online && _processSnapshot.Active;
+
+    public string CaptureStatus => _online ? _processSnapshot.Status : "后台服务未连接";
+
     public event Action<SpeedSample>? SpeedTick;
     public event Action<UsageReport>? UsageRefreshed;
     public event Action? InterfacesChanged;
     public event Action<ProxyTrafficSnapshot>? SnapshotUpdated;
+    public event Action<ProcessTrafficSnapshot>? ProcessSnapshotUpdated;
 
     public void Start()
     {
@@ -177,6 +187,21 @@ public sealed class RemoteBackend : IMonitoringSource, IProxyTrafficSource
                ?? throw new InvalidOperationException("empty proxy report");
     }
 
+    public async Task<ProcessUsageReport> BuildReportAsync(ProcessScope scope)
+    {
+        using var response = await _http.GetAsync($"api/process/report?scope={scope}").ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<ProcessUsageReport>(ApiJson.Options).ConfigureAwait(false)
+               ?? throw new InvalidOperationException("empty process report");
+    }
+
+    public async Task SetEnabledAsync(bool enabled)
+    {
+        _settings.ProcessTrafficEnabled = enabled;
+        _settings.Save();
+        await SendAsync(HttpMethod.Post, "api/process/enabled", new ProcessEnabledRequest(enabled)).ConfigureAwait(false);
+    }
+
     private async Task LoopAsync(CancellationToken token)
     {
         DateTimeOffset nextUsage = DateTimeOffset.MinValue;
@@ -243,6 +268,7 @@ public sealed class RemoteBackend : IMonitoringSource, IProxyTrafficSource
             _selectedKeys = live.SelectedKeys.ToArray();
             _autoSelect = live.AutoSelect;
             _snapshot = live.ProxySnapshot;
+            _processSnapshot = live.ProcessSnapshot ?? _processSnapshot;
 
             _multipliers.Clear();
             foreach (var pair in live.Multipliers) _multipliers[pair.Key] = pair.Value;
@@ -255,6 +281,7 @@ public sealed class RemoteBackend : IMonitoringSource, IProxyTrafficSource
             SpeedTick?.Invoke(live.Speed);
             if (interfacesChanged) InterfacesChanged?.Invoke();
             SnapshotUpdated?.Invoke(live.ProxySnapshot);
+            ProcessSnapshotUpdated?.Invoke(live.ProcessSnapshot ?? _processSnapshot);
         });
     }
 

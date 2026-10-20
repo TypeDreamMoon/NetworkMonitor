@@ -23,6 +23,12 @@ public sealed class AppSettings
 
     public bool ClashAutoDetect { get; set; } = true;
 
+    /// <summary>
+    /// Enables the ETW (Microsoft-Windows-Kernel-Network) system-wide per-process accounting.
+    /// This one does not need FlClash: it reads the kernel's own send/receive events.
+    /// </summary>
+    public bool ProcessTrafficEnabled { get; set; } = true;
+
     public bool AutoCheckUpdates { get; set; } = true;
 
     /// <summary>UI / sampling refresh interval in seconds (1, 2 or 5).</summary>

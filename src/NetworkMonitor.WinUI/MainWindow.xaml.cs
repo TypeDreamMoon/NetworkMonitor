@@ -49,6 +49,7 @@ public sealed partial class MainWindow : Window
     private bool _syncingAutoUpdate;
     private bool _dragging;
     private bool _pendingTrafficPage;
+    private bool _pendingProcessPage;
     private bool _syncingRefresh;
     private PageMode _page = PageMode.Home;
     private PageMode _previousPage = PageMode.Home;
@@ -57,6 +58,7 @@ public sealed partial class MainWindow : Window
     {
         Home,
         Traffic,
+        Process,
         Settings,
     }
     private int _dragStartX;
@@ -86,6 +88,7 @@ public sealed partial class MainWindow : Window
             // the window is loaded so a stale/default size can never win.
             ApplyInitialBounds();
             if (_pendingTrafficPage) Navigate(PageMode.Traffic);
+            if (_pendingProcessPage) Navigate(PageMode.Process);
         };
 
         AppWindow.Changed += (_, args) =>
@@ -148,6 +151,7 @@ public sealed partial class MainWindow : Window
         App.Instance.ProxyTraffic.SnapshotUpdated += OnProxySnapshot;
 
         TrafficPanel.Attach(App.Instance.ProxyTraffic);
+        ProcessPanel.Attach(App.Instance.ProcessTraffic);
         SetRefreshInterval(_settings.RefreshIntervalSeconds);
         _homeTrafficTimer.Tick += async (_, _) => await RefreshHomeTrafficAsync();
         _homeTrafficTimer.Start();
@@ -548,6 +552,8 @@ public sealed partial class MainWindow : Window
 
     private void Traffic_Click(object sender, RoutedEventArgs e) => ShowTrafficTab();
 
+    private void Process_Click(object sender, RoutedEventArgs e) => ShowProcessTab();
+
     private void ShowTrafficPage_Click(object sender, RoutedEventArgs e) => ShowTrafficTab();
 
     private void Settings_Click(object sender, RoutedEventArgs e) => Navigate(PageMode.Settings);
@@ -563,22 +569,36 @@ public sealed partial class MainWindow : Window
         Navigate(PageMode.Traffic);
     }
 
+    public void ShowProcessTab()
+    {
+        if (!Root.IsLoaded)
+        {
+            _pendingProcessPage = true;
+            return;
+        }
+
+        Navigate(PageMode.Process);
+    }
+
     private void Back_Click(object sender, RoutedEventArgs e) =>
-        Navigate(_previousPage == PageMode.Traffic ? PageMode.Traffic : PageMode.Home);
+        Navigate(_previousPage is PageMode.Traffic or PageMode.Process ? _previousPage : PageMode.Home);
 
     private void Navigate(PageMode page)
     {
         _pendingTrafficPage = false;
+        _pendingProcessPage = false;
 
         if (page != _page) _previousPage = _page;
         _page = page;
 
         HomeScroll.Visibility = page == PageMode.Home ? Visibility.Visible : Visibility.Collapsed;
         TrafficScroll.Visibility = page == PageMode.Traffic ? Visibility.Visible : Visibility.Collapsed;
+        ProcessScroll.Visibility = page == PageMode.Process ? Visibility.Visible : Visibility.Collapsed;
         SettingsScroll.Visibility = page == PageMode.Settings ? Visibility.Visible : Visibility.Collapsed;
 
         BackButton.Visibility = page == PageMode.Home ? Visibility.Collapsed : Visibility.Visible;
         TrafficButton.Visibility = page == PageMode.Home ? Visibility.Visible : Visibility.Collapsed;
+        ProcessButton.Visibility = page == PageMode.Home ? Visibility.Visible : Visibility.Collapsed;
         SettingsButton.Visibility = page == PageMode.Settings ? Visibility.Collapsed : Visibility.Visible;
 
         switch (page)
@@ -586,6 +606,10 @@ public sealed partial class MainWindow : Window
             case PageMode.Traffic:
                 TrafficScroll.ChangeView(null, 0, null);
                 _ = TrafficPanel.RefreshAsync();
+                break;
+            case PageMode.Process:
+                ProcessScroll.ChangeView(null, 0, null);
+                _ = ProcessPanel.RefreshAsync();
                 break;
             case PageMode.Settings:
                 SettingsScroll.ChangeView(null, 0, null);
@@ -612,6 +636,7 @@ public sealed partial class MainWindow : Window
         seconds = Math.Clamp(seconds, 1, 10);
         _homeTrafficTimer.Interval = TimeSpan.FromSeconds(seconds);
         TrafficPanel.SetRefreshInterval(seconds);
+        ProcessPanel.SetRefreshInterval(seconds);
     }
 
     private async Task RefreshHomeTrafficAsync()

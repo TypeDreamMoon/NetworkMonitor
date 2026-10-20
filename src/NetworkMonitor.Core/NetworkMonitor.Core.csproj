@@ -9,6 +9,8 @@
     <RootNamespace>NetworkMonitor.Core</RootNamespace>
     <AssemblyName>NetworkMonitor.Core</AssemblyName>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- ETW interop (P/Invoke + raw EVENT_RECORD parsing) needs pointer access. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,3 +18,4 @@
   </ItemGroup>
 
 </Project>
+

@@ -3,6 +3,7 @@ using System.Reflection;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using NetworkMonitor.Core.Configuration;
 using NetworkMonitor.Core.Monitoring;
+using NetworkMonitor.Core.Process;
 using NetworkMonitor.Core.Proxy;
 using NetworkMonitor.Core.Service;
 using NetworkMonitor.Service;
@@ -72,6 +73,18 @@ app.MapGet("/api/proxy/report", async (string? scope, BackendState state) =>
 {
     if (!Enum.TryParse<ProxyScope>(scope, ignoreCase: true, out var parsed)) parsed = ProxyScope.Today;
     return await state.Proxy.BuildReportAsync(parsed);
+});
+
+app.MapGet("/api/process/report", async (string? scope, BackendState state) =>
+{
+    if (!Enum.TryParse<ProcessScope>(scope, ignoreCase: true, out var parsed)) parsed = ProcessScope.Today;
+    return await state.ProcessTraffic.BuildReportAsync(parsed);
+});
+
+app.MapPost("/api/process/enabled", (ProcessEnabledRequest request, BackendState state) =>
+{
+    state.EnableProcessTraffic(request.Enabled);
+    return Results.NoContent();
 });
 
 app.MapPost("/api/interfaces/auto", (BackendState state) =>

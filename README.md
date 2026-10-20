@@ -9,6 +9,7 @@ Windows 网速与流量监控，常驻托盘 / 悬浮窗 / 任务栏。
 - 实时下载 / 上传速率，1 秒采样 + EMA 平滑，附最近 120 秒曲线
 - **今日 / 本周 / 本月 / 总计** 流量，上下行分开统计；7 天 / 30 天柱状图
 - **应用流量（FlClash / Clash Verge Rev）**：独立页面 + 首页简要卡片（Top 应用 / Top 节点），按应用 + 节点统计实际/计费流量，支持今日/本周/本月、分类饼图与节点倍率
+- **进程流量（全系统，不需要 FlClash）**：基于内核 ETW `Microsoft-Windows-Kernel-Network` 实时会话，按进程统计真实收发字节，支持今日/本周/本月、分类饼图与采集开关
 - **独立设置页**：显示、系统、刷新速度、网卡、控制器、版本更新集中在一页
 - **刷新速度**：1 / 2 / 5 秒可选，作用于网速、应用流量和界面刷新
 - 系统托盘常驻：左键打开主界面，右键菜单切换悬浮窗 / 任务栏条 / 开机自启
@@ -44,7 +45,20 @@ Windows 网速与流量监控，常驻托盘 / 悬浮窗 / 任务栏。
 - **节点倍率**：只在「应用流量」页的节点卡右上角齿轮设置（0–100，支持 1x/1.5x/2x/3x/5x）；首页节点摘要只读显示，不提供设置入口。界面同时显示「实际流量」和「计费流量 = 实际 × 倍率」，应用行和汇总也会带计费值。倍率只作用于展示/汇总，数据库里始终存实际字节，改倍率会立即重算历史
 - `chains[0]` 就是实际出口节点；`DIRECT` 规则也会记为 `DIRECT`
 - 数据按分钟写入 SQLite 的 `proxy_usage` 表，今日/本周/本月从台账聚合
-- **只统计经过 FlClash 的连接**。完全不经过代理的直连流量不会出现在这里；后续可以用 ETW `Microsoft-Windows-Kernel-Network` 补全系统级按进程统计
+- **只统计经过 FlClash 的连接**。完全不经过代理的直连流量不会出现在这里；要看全系统的真实流量请用「进程流量」页（它基于内核 ETW，不需要代理在运行）
+
+## 进程流量（全系统，不需要 FlClash）
+
+标题栏的进程图标按钮，或启动参数 `--process`，打开「进程流量」页。这一页不依赖 FlClash，也不需要任何代理在运行。
+
+- 数据源：实时 ETW 会话 `NetworkMonitor-ProcessTraffic` 订阅 `Microsoft-Windows-Kernel-Network`（provider `7dd42a49-5329-4832-8dfd-43d979153a88`）。内核在每次 TCP/UDP 收发时把 PID、字节数、远端地址写进事件，所以能覆盖**所有进程的所有连接**，包括直连和走 TUN 的流量
+- 事件 ID 10–17（分别对应 IPv4/IPv6 的 TCP 与 UDP），**偶数=发送、奇数=接收**；发送事件的 `daddr` 是远端，接收事件的 `saddr` 是远端
+- 负载按「长度自描述」解析：字段顺序固定为 `PID, size, daddr, saddr, dport, sport`，所以 `UserDataLength == 20` 就一定是 IPv4（4+4+4+4+2+2），`== 44` 就一定是 IPv6（4+4+16+16+2+2）。地址按网络字节序直接读原始字节，**不做 TDH `TRACE_EVENT_INFO` 解析**——那套结构的字段偏移在不同 SDK 头文件里互相对不上，用长度判定地址族更可靠
+- 启动时会自检 `EVENT_TRACE_LOGFILEW == 448`、`EVENT_RECORD == 112`、`EVENT_TRACE_PROPERTIES == 120`，布局不符会直接报错而不是静默错读
+- 默认排除回环（127/8、::1）、局域网（10/8、172.16/12、192.168/16）、链路本地（169.254/16、fe80::/10）和多播/广播，避免本机进程互访把台账刷爆
+- 按分钟写入 SQLite 的 `process_usage` 表，今日/本周/本月从台账聚合；进程名带启动时间戳做缓存，PID 复用时会重新解析
+- 页面右上角「采集 / 已暂停」开关写回 `settings.json` 的 `processTrafficEnabled`；服务每 30 秒重试启动会话，所以启动失败也会自动恢复
+- **需要管理员权限**（ETW 实时会话要求）。后台服务以 LocalSystem 运行时天然满足；便携模式前台启动 `NetworkMonitor.Service.exe` 要用管理员身份，否则页面会提示「启动 ETW 会话需要管理员权限」
 
 ## 数据口径
 
@@ -75,8 +89,8 @@ NetworkMonitor.exe           (托盘 / 悬浮窗 / 任务栏条 / 设置，只�
 - 端口默认 `7788`，可用 `NETWORKMONITOR_SERVICE_PORT` 覆盖
 - 数据目录迁到 `%ProgramData%\NetworkMonitor`（服务账号是 LocalSystem，用不了用户级 APPDATA）；首次启动会自动复制旧 `%APPDATA%\NetworkMonitor` 里的 db 和 settings，旧目录保留不动
 - `settings.json` 仍由界面单写，服务只读，避免两个进程互相覆盖；界面上的网卡/刷新间隔/代理/倍率改动通过 API 推给服务
-- API（全部需要 token）：`GET /api/health`、`GET /api/live`（速率 + 网卡 + 选中项 + Clash 快照 + 倍率）、`GET /api/usage`、`GET /api/proxy/report?scope=Today|Week|Month`、`POST /api/interfaces/select|auto`、`POST /api/refresh-interval`、`POST /api/proxy/config|refresh|multiplier`
-- 服务以 LocalSystem 运行，后续可以直接用 ETW `Microsoft-Windows-Kernel-Network` 做全系统按进程统计（当前应用流量仍只覆盖经过 Clash 的连接）
+- API（全部需要 token）：`GET /api/health`、`GET /api/live`（速率 + 网卡 + 选中项 + Clash 快照 + 倍率 + 进程流量快照）、`GET /api/usage`、`GET /api/proxy/report?scope=Today|Week|Month`、`GET /api/process/report?scope=Today|Week|Month`、`POST /api/interfaces/select|auto`、`POST /api/refresh-interval`、`POST /api/proxy/config|refresh|multiplier`、`POST /api/process/enabled`
+- 服务以 LocalSystem 运行，直接用 ETW `Microsoft-Windows-Kernel-Network` 做全系统按进程统计（见上面「进程流量」一节）；「应用流量」页仍只覆盖经过 Clash 的连接
 
 ## 技术栈
 
@@ -96,7 +110,7 @@ NetworkMonitor.exe           (托盘 / 悬浮窗 / 任务栏条 / 设置，只�
 - **任务栏条优先停靠**：`SetParent(Shell_TrayWnd)` + `WS_CHILD`，位置相对任务栏客户区计算，跟随任务栏移动/DPI/自动隐藏；挂载失败才回退到顶层覆盖窗口
 - 停靠后是子窗口，拿不到 DWM 亚克力，所以定位后采样任务栏的实际像素颜色并画同色背景，视觉上等于没有背景（主窗口和悬浮窗仍然保留亚克力）
 - Explorer 重启会让父任务栏和子窗口一起销毁，此时**不能对旧 WinUI Window 调 `Close()`**（会崩 coreclr），而是丢弃旧对象、重建窗口再挂载
-- 卡片圆角 14、统计卡 12；首页 / 应用流量 / 设置是三个页面，用标题栏按钮和「←」返回切换，节点用两列卡片网格展示
+- 卡片圆角 14、统计卡 12；首页 / 应用流量 / 进程流量 / 设置是四个页面，用标题栏按钮和「←」返回切换，节点用两列卡片网格展示
 - 图标使用 Bootstrap Icons（MIT）SVG，分类带独立颜色；实际流量用青色、计费流量用琥珀色，关键数字一眼可区分
 - 网卡选择与统计信息已移入设置面板，首页底部只保留功能内容
 
@@ -156,7 +170,7 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 
 ## 版本、CI 与自动更新
 
-当前版本 **1.2.0**，显示在「设置 → 版本」。
+当前版本 **1.3.0**，显示在「设置 → 版本」。
 
 ### CI
 
@@ -174,8 +188,8 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 仓库地址已配置为 `https://github.com/TypeDreamMoon/NetworkMonitor`。CI 会把 `RepositoryUrl` 覆盖成当前仓库。发布命令：
 
 ```powershell
-git tag v1.2.0
-git push origin v1.2.0
+git tag v1.3.0
+git push origin v1.3.0
 ```
 
 ### 自动更新
@@ -206,7 +220,7 @@ git push origin v1.2.0
 - 任务栏条不检测全屏应用（停靠模式下任务栏本身会随全屏隐藏；回退覆盖模式仍可能盖在全屏窗口上）
 - Win11 默认把新托盘图标放进溢出区，需要用户在任务栏设置里固定
 - 总计只覆盖 NetworkMonitor 服务运行期间。若要补系统级历史，可接 WinRT `NetworkUsage`（本机未验证）
-- 按进程统计未实现：下一步用 ETW `Microsoft-Windows-Kernel-Network`（事件带 PID；服务已是 LocalSystem，权限足够）
+- 按进程统计已实现（内核 ETW，见上面「进程流量」一节）；残留限制是它需要管理员/LocalSystem 权限，且默认排除回环与局域网，所以只能看到对外网的流量
 - 可加：流量包配额提醒、运营商口径（1000 进制）切换、月账单日设置
 
 ## License

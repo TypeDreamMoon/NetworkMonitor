@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using NetworkMonitor.Core.Configuration;
 using NetworkMonitor.Core.Formatting;
 using NetworkMonitor.Core.Monitoring;
+using NetworkMonitor.Core.Process;
 using NetworkMonitor.Core.Proxy;
 using NetworkMonitor.Core.Sampling;
 using NetworkMonitor.Core.Service;
@@ -127,6 +128,19 @@ public partial class App : Application
             }
         }
 
+        if (Environment.GetCommandLineArgs()
+            .Any(a => string.Equals(a, "--process", StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                ShowProcessWindow();
+            }
+            catch (Exception ex)
+            {
+                Log.Write("打开进程流量窗口失败", ex);
+            }
+        }
+
         _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
         _showWait = ThreadPool.RegisterWaitForSingleObject(_showEvent,
             (_, _) => _queue.TryEnqueue(ShowMain), null, Timeout.Infinite, executeOnlyOnce: false);
@@ -146,6 +160,9 @@ public partial class App : Application
     public IProxyTrafficSource ProxyTraffic =>
         _backend ?? throw new InvalidOperationException("background service client is not ready");
 
+    public IProcessTrafficSource ProcessTraffic =>
+        _backend ?? throw new InvalidOperationException("background service client is not ready");
+
     public bool ServiceOnline => _backend?.IsOnline ?? false;
 
     public RemoteBackend? Backend => _backend;
@@ -154,6 +171,12 @@ public partial class App : Application
     {
         ShowMain();
         _main?.ShowTrafficTab();
+    }
+
+    public void ShowProcessWindow()
+    {
+        ShowMain();
+        _main?.ShowProcessTab();
     }
 
     public void RefreshProxy() => _backend?.RefreshEndpoint();

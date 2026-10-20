@@ -11,7 +11,7 @@
     <AssemblyName>NetworkMonitor.Service</AssemblyName>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Product>NetworkMonitor 后台统计服务</Product>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 

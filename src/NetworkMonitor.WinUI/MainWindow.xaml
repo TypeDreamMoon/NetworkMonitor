@@ -43,6 +43,10 @@
                         ToolTipService.ToolTip="应用流量（FlClash）" Click="Traffic_Click">
                     <Image Source="ms-appx:///Assets/Icons/traffic_5B9DFF.svg" Width="13" Height="13" />
                 </Button>
+                <Button x:Name="ProcessButton" Style="{StaticResource TitleIconButton}"
+                        ToolTipService.ToolTip="进程流量（全系统）" Click="Process_Click">
+                    <Image Source="ms-appx:///Assets/Icons/process_818CF8.svg" Width="13" Height="13" />
+                </Button>
                 <Button x:Name="FloatButton" Style="{StaticResource TitleIconButton}"
                         ToolTipService.ToolTip="显示 / 隐藏悬浮窗" Click="FloatButton_Click">
                     <Image Source="ms-appx:///Assets/Icons/window_93A2B8.svg" Width="13" Height="13" />
@@ -205,6 +209,11 @@
         <ScrollViewer x:Name="TrafficScroll" Grid.Row="1" Visibility="Collapsed"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <controls:TrafficView x:Name="TrafficPanel" Margin="18,2,18,14" />
+        </ScrollViewer>
+
+        <ScrollViewer x:Name="ProcessScroll" Grid.Row="1" Visibility="Collapsed"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <controls:ProcessTrafficView x:Name="ProcessPanel" Margin="18,2,18,14" />
         </ScrollViewer>
 
 
