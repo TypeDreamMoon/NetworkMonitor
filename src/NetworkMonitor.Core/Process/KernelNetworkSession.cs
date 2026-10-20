@@ -1,3 +1,4 @@
+using System.Net;
 using System.Runtime.InteropServices;
 using NetworkMonitor.Core.Monitoring;
 
@@ -43,6 +44,7 @@ internal sealed unsafe class KernelNetworkSession : IDisposable
     private long _events;
     private long _unparsed;
     private readonly bool[] _seenIds = new bool[256];
+    private readonly bool[] _sampledIds = new bool[256];
     private long _lastDropped;
 
     internal KernelNetworkSession(PacketHandler handler)
@@ -245,29 +247,19 @@ internal sealed unsafe class KernelNetworkSession : IDisposable
             if (data is null) return;
 
             // Field order is fixed by the Microsoft-Windows-Kernel-Network manifest:
-            //   PID, size, daddr, saddr, dport, sport   (network byte order for the addresses).
-            // The payload length therefore identifies the address family with no TDH lookup:
-            //   20 = IPv4 (4+4+4+4+2+2), 44 = IPv6 (4+4+16+16+2+2).
+            //   PID, size, daddr, saddr, dport, sport
+            // then optional TCP fields (sequence number, connection id), so a payload is never
+            // shorter than the fixed part but is commonly longer. daddr is always the peer and
+            // saddr always the local socket, in both directions (verified from live events:
+            // saddr was 10.244.152.13 / 127.0.0.1 while daddr held the public address).
+            // Addresses are raw network-order bytes, so the address width decides the offsets.
             bool isTx = (id & 1) == 0;
             int addressLength;
-            int remoteOffset;
-            int remotePort;
-            int localPort;
 
-            if (length == 20)
-            {
-                addressLength = 4;
-                remoteOffset = isTx ? 8 : 12;
-                remotePort = 16;
-                localPort = 18;
-            }
-            else if (length == 44)
-            {
+            if (length >= 8 + 16 + 16 + 4)
                 addressLength = 16;
-                remoteOffset = isTx ? 8 : 24;
-                remotePort = 40;
-                localPort = 42;
-            }
+            else if (length >= 8 + 4 + 4 + 4)
+                addressLength = 4;
             else
             {
                 Interlocked.Increment(ref _unparsed);
@@ -275,14 +267,19 @@ internal sealed unsafe class KernelNetworkSession : IDisposable
                 return;
             }
 
+            int remoteOffset = 8;
+            int remotePortOffset = 8 + (addressLength * 2);
+            int localPortOffset = remotePortOffset + 2;
+
             int processId = *(int*)data;
             long bytes = *(uint*)(data + 4);
 
             var remote = new ReadOnlySpan<byte>(data + remoteOffset, addressLength);
-            ushort dport = *(ushort*)(data + remotePort);
-            ushort sport = *(ushort*)(data + localPort);
+            ushort dport = *(ushort*)(data + remotePortOffset);
+            ushort sport = *(ushort*)(data + localPortOffset);
 
             Interlocked.Increment(ref _events);
+            LogEventSample(id, length, processId, bytes, data, addressLength, dport, sport, isTx);
 
             if (bytes <= 0) return;
 
@@ -293,6 +290,19 @@ internal sealed unsafe class KernelNetworkSession : IDisposable
             Interlocked.Increment(ref _unparsed);
             LogSink.Write("process: 解析 ETW 事件失败", ex);
         }
+    }
+
+    private void LogEventSample(int id, int length, int processId, long bytes, byte* data, int addressLength, ushort remotePort, ushort localPort, bool isTx)
+    {
+        if (_sampledIds[id & 0xFF]) return;
+        _sampledIds[id & 0xFF] = true;
+
+        var remote = new IPAddress(new ReadOnlySpan<byte>(data + 8, addressLength));
+        var local = new IPAddress(new ReadOnlySpan<byte>(data + 8 + addressLength, addressLength));
+
+        LogSink.Write(
+            $"process: 事件样例 id={id} dir={(isTx ? "tx" : "rx")} pid={processId} bytes={bytes} " +
+            $"local={local}:{localPort} remote={remote}:{remotePort} length={length}");
     }
 
     private void LogUnknownEvent(int id, int length, byte* data)

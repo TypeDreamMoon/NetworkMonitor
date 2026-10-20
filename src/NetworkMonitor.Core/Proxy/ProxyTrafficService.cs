@@ -78,6 +78,7 @@ public sealed class ProxyTrafficService : IProxyTrafficSource
     private readonly ClashApiClient _client = new();
     private readonly ProxyUsageStore _store;
     private readonly CancellationTokenSource _cts = new();
+    private int _disposed;
     private readonly object _gate = new();
 
     private readonly Dictionary<string, (long Upload, long Download)> _connections = [];
@@ -608,6 +609,8 @@ public sealed class ProxyTrafficService : IProxyTrafficSource
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
         _cts.Cancel();
         FlushMinute();
         _client.Dispose();

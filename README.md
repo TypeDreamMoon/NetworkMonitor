@@ -53,7 +53,7 @@ Windows 网速与流量监控，常驻托盘 / 悬浮窗 / 任务栏。
 
 - 数据源：实时 ETW 会话 `NetworkMonitor-ProcessTraffic` 订阅 `Microsoft-Windows-Kernel-Network`（provider `7dd42a49-5329-4832-8dfd-43d979153a88`）。内核在每次 TCP/UDP 收发时把 PID、字节数、远端地址写进事件，所以能覆盖**所有进程的所有连接**，包括直连和走 TUN 的流量
 - 事件 ID 10–17（分别对应 IPv4/IPv6 的 TCP 与 UDP），**偶数=发送、奇数=接收**；发送事件的 `daddr` 是远端，接收事件的 `saddr` 是远端
-- 负载按「长度自描述」解析：字段顺序固定为 `PID, size, daddr, saddr, dport, sport`，所以 `UserDataLength == 20` 就一定是 IPv4（4+4+4+4+2+2），`== 44` 就一定是 IPv6（4+4+16+16+2+2）。地址按网络字节序直接读原始字节，**不做 TDH `TRACE_EVENT_INFO` 解析**——那套结构的字段偏移在不同 SDK 头文件里互相对不上，用长度判定地址族更可靠
+- 负载按「长度定地址族」解析：字段顺序固定为 `PID, size, daddr, saddr, dport, sport`，后面可能再跟 TCP 的 `seqnum, connid` 等字段，所以实测长度有 20 / 28 / 36 / 44 / 52 多种。规则是 `>= 20` 视为 IPv4、`>= 44` 视为 IPv6，只读固定前缀、忽略尾部字段。`daddr` 始终是对端、`saddr` 始终是本机套接字（收发两个方向都一样）。地址按网络字节序直接读原始字节，**不做 TDH `TRACE_EVENT_INFO` 解析**——那套结构的字段偏移在不同 SDK 头文件里互相对不上。首次见到每种事件 ID 时会往日志写一条解码样例（`process: 事件样例 ...`），便于核对格式
 - 启动时会自检 `EVENT_TRACE_LOGFILEW == 448`、`EVENT_RECORD == 112`、`EVENT_TRACE_PROPERTIES == 120`，布局不符会直接报错而不是静默错读
 - 默认排除回环（127/8、::1）、局域网（10/8、172.16/12、192.168/16）、链路本地（169.254/16、fe80::/10）和多播/广播，避免本机进程互访把台账刷爆
 - 按分钟写入 SQLite 的 `process_usage` 表，今日/本周/本月从台账聚合；进程名带启动时间戳做缓存，PID 复用时会重新解析
@@ -170,7 +170,7 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 
 ## 版本、CI 与自动更新
 
-当前版本 **1.3.0**，显示在「设置 → 版本」。
+当前版本 **1.3.1**，显示在「设置 → 版本」。
 
 ### CI
 
@@ -188,8 +188,8 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 仓库地址已配置为 `https://github.com/TypeDreamMoon/NetworkMonitor`。CI 会把 `RepositoryUrl` 覆盖成当前仓库。发布命令：
 
 ```powershell
-git tag v1.3.0
-git push origin v1.3.0
+git tag v1.3.1
+git push origin v1.3.1
 ```
 
 ### 自动更新

@@ -19,6 +19,7 @@ public sealed class ProcessTrafficService : IProcessTrafficSource
     private readonly ProcessUsageStore _store;
     private readonly KernelNetworkSession _session;
     private readonly CancellationTokenSource _cts = new();
+    private int _disposed;
     private readonly object _gate = new();
 
     private readonly Dictionary<string, (long Rx, long Tx)> _minute = new(StringComparer.Ordinal);
@@ -418,6 +419,8 @@ public sealed class ProcessTrafficService : IProcessTrafficSource
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
         _cts.Cancel();
         FlushMinute();
         _session.Dispose();
