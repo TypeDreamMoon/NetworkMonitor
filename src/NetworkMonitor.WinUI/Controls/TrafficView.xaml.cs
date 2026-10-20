@@ -24,6 +24,19 @@ public sealed partial class TrafficView : UserControl
     private bool _refreshing;
     private bool _editingMultiplier;
 
+    private readonly Dictionary<string, AppVisual> _appVisuals = new(StringComparer.Ordinal);
+    private readonly List<string> _appOrder = [];
+
+    private readonly Dictionary<string, NodeCardVisual> _nodeCards = new(StringComparer.Ordinal);
+    private readonly List<string> _nodeOrder = [];
+
+    private readonly Dictionary<string, LegendVisual> _legendVisuals = new(StringComparer.Ordinal);
+    private readonly List<string> _legendOrder = [];
+
+    private Grid? _nodesGrid;
+    private TextBlock? _emptyAppsLabel;
+    private TextBlock? _emptyNodesLabel;
+
     public TrafficView()
     {
         InitializeComponent();
@@ -105,8 +118,6 @@ public sealed partial class TrafficView : UserControl
 
     private void BuildPie(IReadOnlyList<ProxyAppUsage> apps)
     {
-        PieLegend.Children.Clear();
-
         var groups = apps
             .GroupBy(app => app.Category)
             .Select(group => (Category: group.Key, Total: group.Sum(app => app.Total)))
@@ -132,127 +143,97 @@ public sealed partial class TrafficView : UserControl
 
         CategoryPie.SetData(slices, ByteFormatter.Size(total), "实际流量");
 
-        var secondary = (Brush)Application.Current.Resources["TextSecondaryBrush"];
-        var muted = (Brush)Application.Current.Resources["TextMutedBrush"];
+        // 图例增量更新：只新建真正变化的行，避免每次刷新整块闪一下。
+        var current = groups.Select(group => group.Category).ToList();
+        if (!SameKeys(current, _legendOrder))
+        {
+            foreach (var stale in _legendVisuals.Keys.Where(key => !current.Contains(key)).ToList())
+            {
+                PieLegend.Children.Remove(_legendVisuals[stale].Root);
+                _legendVisuals.Remove(stale);
+            }
+
+            _legendOrder.Clear();
+            _legendOrder.AddRange(current);
+        }
 
         foreach (var group in groups)
         {
-            var color = IconCatalog.ForCategory(group.Category).Color;
-
-            var row = new Grid { ColumnSpacing = 8 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            var dot = new Microsoft.UI.Xaml.Shapes.Ellipse
+            if (!_legendVisuals.TryGetValue(group.Category, out var legend))
             {
-                Width = 8,
-                Height = 8,
-                Fill = new SolidColorBrush(color),
-                VerticalAlignment = VerticalAlignment.Center,
-            };
+                legend = CreateLegendRow(group.Category);
+                _legendVisuals[group.Category] = legend;
+            }
 
-            var label = new TextBlock
-            {
-                Text = group.Category,
-                FontSize = 11.5,
-                Foreground = secondary,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-
-            var amount = new TextBlock
-            {
-                Text = $"{ByteFormatter.Size(group.Total)}   {(double)group.Total / total:P0}",
-                FontSize = 10.5,
-                Foreground = muted,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-
-            Grid.SetColumn(label, 1);
-            Grid.SetColumn(amount, 2);
-            row.Children.Add(dot);
-            row.Children.Add(label);
-            row.Children.Add(amount);
-            PieLegend.Children.Add(row);
+            legend.Amount.Text = $"{ByteFormatter.Size(group.Total)}   {(double)group.Total / total:P0}";
         }
+
+        PieLegend.Children.Clear();
+        foreach (var name in _legendOrder) PieLegend.Children.Add(_legendVisuals[name].Root);
     }
 
     private void BuildApps(IReadOnlyList<ProxyAppUsage> apps)
     {
-        AppsPanel.Children.Clear();
-
         if (apps.Count == 0)
         {
-            AppsPanel.Children.Add(MutedLabel("暂无数据"));
+            AppsPanel.Children.Clear();
+            _appVisuals.Clear();
+            _appOrder.Clear();
+            _emptyAppsLabel ??= MutedLabel("暂无数据");
+            AppsPanel.Children.Add(_emptyAppsLabel);
             return;
         }
 
-        foreach (var group in apps
-                     .GroupBy(app => app.Category)
-                     .OrderBy(group => CategoryIndex(group.Key))
-                     .ThenByDescending(group => group.Sum(app => app.Total)))
+        if (_emptyAppsLabel is not null) AppsPanel.Children.Remove(_emptyAppsLabel);
+
+        var live = apps.Select(app => app.Process).ToHashSet(StringComparer.Ordinal);
+        foreach (var stale in _appVisuals.Keys.Where(key => !live.Contains(key)).ToList())
+            _appVisuals.Remove(stale);
+
+        foreach (var app in apps)
         {
-            long total = group.Sum(app => app.Total);
-            var visual = IconCatalog.ForCategory(group.Key);
-            var color = new SolidColorBrush(visual.Color);
-
-            var header = new StackPanel
+            if (!_appVisuals.TryGetValue(app.Process, out var visual))
             {
-                Orientation = Orientation.Horizontal,
-                Spacing = 5,
-                Margin = new Thickness(2, 6, 0, 2),
-            };
-            header.Children.Add(IconCatalog.Create(visual.Icon, 11, visual.Color));
-            header.Children.Add(new TextBlock
+                visual = CreateAppVisual(app);
+                _appVisuals[app.Process] = visual;
+            }
+            else
             {
-                Text = $"{group.Key} · {ByteFormatter.Size(total)}",
-                FontSize = 11,
-                Foreground = color,
-            });
-            AppsPanel.Children.Add(header);
+                visual.Detail.Text = BuildAppDetail(app);
+                visual.Total.Text = ByteFormatter.Size(app.Total);
+            }
 
-            foreach (var app in group.OrderByDescending(app => app.Total))
-                AppsPanel.Children.Add(BuildAppRow(app));
+            UpdateAppNodes(visual, app);
+        }
+
+        var names = apps.Select(app => app.Process).ToList();
+        if (_appOrder.Count != names.Count || !names.All(_appOrder.Contains))
+        {
+            _appOrder.Clear();
+            _appOrder.AddRange(names);
+        }
+
+        AppsPanel.Children.Clear();
+        foreach (var name in _appOrder)
+        {
+            if (_appVisuals.TryGetValue(name, out var visual)) AppsPanel.Children.Add(visual.Expander);
         }
     }
 
-    private void BuildNodes(IReadOnlyList<ProxyNodeUsage> nodes)
+    private static string BuildAppDetail(ProxyAppUsage app)
     {
-        NodesPanel.Children.Clear();
+        string billed = app.BilledTotal != app.Total
+            ? $"   ·   计费 {ByteFormatter.Size(app.BilledTotal)}"
+            : string.Empty;
 
-        if (nodes.Count == 0)
-        {
-            NodesPanel.Children.Add(MutedLabel("暂无数据"));
-            return;
-        }
-
-        var grid = new Grid { ColumnSpacing = 8, RowSpacing = 8 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        for (int i = 0; i < nodes.Count; i++)
-        {
-            if (i % 2 == 0)
-                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var card = BuildNodeCard(nodes[i]);
-            Grid.SetRow(card, i / 2);
-            Grid.SetColumn(card, i % 2);
-            grid.Children.Add(card);
-        }
-
-        NodesPanel.Children.Add(grid);
+        return $"{app.Category} · ↓ {ByteFormatter.Size(app.Rx)}   ↑ {ByteFormatter.Size(app.Tx)}   ·   {app.Nodes.Count} 个节点{billed}";
     }
 
-    private FrameworkElement BuildAppRow(ProxyAppUsage app)
+    private AppVisual CreateAppVisual(ProxyAppUsage app)
     {
         var header = new Grid { ColumnSpacing = 10 };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        string billed = app.BilledTotal != app.Total
-            ? $"   ·   计费 {ByteFormatter.Size(app.BilledTotal)}"
-            : string.Empty;
 
         var visual = IconCatalog.ForCategory(app.Category);
 
@@ -267,15 +248,18 @@ public sealed partial class TrafficView : UserControl
             Foreground = PrimaryBrush,
             TextTrimming = TextTrimming.CharacterEllipsis,
         });
-        left.Children.Add(titleRow);
-        left.Children.Add(new TextBlock
+
+        var detail = new TextBlock
         {
-            Text = $"{app.Category} · ↓ {ByteFormatter.Size(app.Rx)}   ↑ {ByteFormatter.Size(app.Tx)}   ·   {app.Nodes.Count} 个节点{billed}",
+            Text = BuildAppDetail(app),
             FontSize = 11,
             Foreground = MutedBrush,
             TextTrimming = TextTrimming.CharacterEllipsis,
             TextWrapping = TextWrapping.NoWrap,
-        });
+        };
+
+        left.Children.Add(titleRow);
+        left.Children.Add(detail);
 
         var total = new TextBlock
         {
@@ -290,25 +274,133 @@ public sealed partial class TrafficView : UserControl
         header.Children.Add(left);
         header.Children.Add(total);
 
-        var nodes = new StackPanel { Spacing = 4, Margin = new Thickness(0, 6, 0, 2) };
-        foreach (var node in app.Nodes)
-            nodes.Children.Add(BuildNodeRow(node, 11));
+        var nodeRows = new StackPanel { Spacing = 4, Margin = new Thickness(0, 6, 0, 2) };
 
         var expander = new Expander
         {
             Header = header,
-            Content = nodes,
+            Content = nodeRows,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             IsExpanded = _expanded.Contains(app.Process),
         };
 
-        expander.Expanding += (_, _) => _expanded.Add(app.Process);
-        expander.Collapsed += (_, _) => _expanded.Remove(app.Process);
-        return expander;
+        string process = app.Process;
+        expander.Expanding += (_, _) => _expanded.Add(process);
+        expander.Collapsed += (_, _) => _expanded.Remove(process);
+
+        return new AppVisual
+        {
+            Expander = expander,
+            Detail = detail,
+            Total = total,
+            NodeRows = nodeRows,
+        };
     }
 
-    private FrameworkElement BuildNodeCard(ProxyNodeUsage node)
+    private static void UpdateAppNodes(AppVisual visual, ProxyAppUsage app)
+    {
+        var order = app.Nodes.Select(node => node.Node).ToList();
+
+        foreach (var node in app.Nodes)
+        {
+            if (!visual.Nodes.TryGetValue(node.Node, out var row))
+            {
+                row = CreateNodeRow(node, 11);
+                visual.Nodes[node.Node] = row;
+            }
+            else
+            {
+                row.Name.Text = NodeLabel(node);
+                row.Amount.Text = NodeAmount(node);
+            }
+        }
+
+        foreach (var stale in visual.Nodes.Keys.Where(key => !order.Contains(key)).ToList())
+            visual.Nodes.Remove(stale);
+
+        if (visual.NodeOrder.Count != order.Count || !order.All(visual.NodeOrder.Contains))
+        {
+            visual.NodeOrder.Clear();
+            visual.NodeOrder.AddRange(order);
+        }
+
+        visual.NodeRows.Children.Clear();
+        foreach (var key in visual.NodeOrder)
+        {
+            if (visual.Nodes.TryGetValue(key, out var row)) visual.NodeRows.Children.Add(row.Root);
+        }
+    }
+
+    private void BuildNodes(IReadOnlyList<ProxyNodeUsage> nodes)
+    {
+        if (nodes.Count == 0)
+        {
+            NodesPanel.Children.Clear();
+            _nodeCards.Clear();
+            _nodeOrder.Clear();
+            _emptyNodesLabel ??= MutedLabel("暂无数据");
+            NodesPanel.Children.Add(_emptyNodesLabel);
+            return;
+        }
+
+        if (_emptyNodesLabel is not null) NodesPanel.Children.Remove(_emptyNodesLabel);
+
+        var live = nodes.Select(node => node.Node).ToHashSet(StringComparer.Ordinal);
+        foreach (var stale in _nodeCards.Keys.Where(key => !live.Contains(key)).ToList())
+            _nodeCards.Remove(stale);
+
+        foreach (var node in nodes)
+        {
+            if (!_nodeCards.TryGetValue(node.Node, out var card))
+            {
+                card = CreateNodeCard(node);
+                _nodeCards[node.Node] = card;
+            }
+            else
+            {
+                card.Badge.Text = $"×{node.Multiplier:0.##}";
+                card.Badge.Visibility = Math.Abs(node.Multiplier - 1) < 0.001
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
+                card.Total.Text = ByteFormatter.Size(node.Total);
+                card.Billed.Text = $"计费 ×{node.Multiplier:0.##} = {ByteFormatter.Size(node.BilledTotal)}";
+                card.Actual.Text = $"实际 ↓ {ByteFormatter.Size(node.Rx)}   ↑ {ByteFormatter.Size(node.Tx)}";
+            }
+        }
+
+        var names = nodes.Select(node => node.Node).ToList();
+        if (_nodeOrder.Count != names.Count || !names.All(_nodeOrder.Contains))
+        {
+            _nodeOrder.Clear();
+            _nodeOrder.AddRange(names);
+        }
+
+        if (_nodesGrid is null)
+        {
+            _nodesGrid = new Grid { ColumnSpacing = 8, RowSpacing = 8 };
+            _nodesGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _nodesGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            NodesPanel.Children.Add(_nodesGrid);
+        }
+
+        _nodesGrid.RowDefinitions.Clear();
+        _nodesGrid.Children.Clear();
+
+        int index = 0;
+        foreach (var name in _nodeOrder)
+        {
+            if (!_nodeCards.TryGetValue(name, out var card)) continue;
+
+            if (index % 2 == 0) _nodesGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetRow(card.Root, index / 2);
+            Grid.SetColumn(card.Root, index % 2);
+            _nodesGrid.Children.Add(card.Root);
+            index++;
+        }
+    }
+
+    private NodeCardVisual CreateNodeCard(ProxyNodeUsage node)
     {
         var card = new Border
         {
@@ -368,36 +460,184 @@ public sealed partial class TrafficView : UserControl
         top.Children.Add(badge);
         top.Children.Add(gear);
 
-        root.Children.Add(top);
-        root.Children.Add(new TextBlock
+        var total = new TextBlock
         {
             Text = ByteFormatter.Size(node.Total),
             FontSize = 15,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Foreground = PrimaryBrush,
-        });
-        var billedRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        billedRow.Children.Add(IconCatalog.Create("IconBilled", 10, IconCatalog.Up));
-        billedRow.Children.Add(new TextBlock
+        };
+
+        var billed = new TextBlock
         {
             Text = $"计费 ×{node.Multiplier:0.##} = {ByteFormatter.Size(node.BilledTotal)}",
             FontSize = 10.5,
             Foreground = new SolidColorBrush(IconCatalog.Up),
             TextTrimming = TextTrimming.CharacterEllipsis,
             TextWrapping = TextWrapping.NoWrap,
-        });
-        root.Children.Add(billedRow);
-        root.Children.Add(new TextBlock
+        };
+
+        var billedRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        billedRow.Children.Add(IconCatalog.Create("IconBilled", 10, IconCatalog.Up));
+        billedRow.Children.Add(billed);
+
+        var actual = new TextBlock
         {
             Text = $"实际 ↓ {ByteFormatter.Size(node.Rx)}   ↑ {ByteFormatter.Size(node.Tx)}",
             FontSize = 10.5,
             Foreground = MutedBrush,
             TextTrimming = TextTrimming.CharacterEllipsis,
             TextWrapping = TextWrapping.NoWrap,
-        });
+        };
+
+        root.Children.Add(top);
+        root.Children.Add(total);
+        root.Children.Add(billedRow);
+        root.Children.Add(actual);
 
         card.Child = root;
-        return card;
+
+        return new NodeCardVisual
+        {
+            Root = card,
+            Badge = badge,
+            Total = total,
+            Billed = billed,
+            Actual = actual,
+        };
+    }
+
+    private static string NodeLabel(ProxyNodeUsage node) =>
+        node.Multiplier != 1 ? $"{node.Node}   ×{node.Multiplier:0.##}" : node.Node;
+
+    private static string NodeAmount(ProxyNodeUsage node) =>
+        node.BilledTotal != node.Total
+            ? $"↓ {ByteFormatter.Size(node.Rx)}   ↑ {ByteFormatter.Size(node.Tx)}   计费 {ByteFormatter.Size(node.BilledTotal)}"
+            : $"↓ {ByteFormatter.Size(node.Rx)}   ↑ {ByteFormatter.Size(node.Tx)}";
+
+    private static NodeRowVisual CreateNodeRow(ProxyNodeUsage node, double fontSize)
+    {
+        var grid = new Grid { ColumnSpacing = 8, Padding = new Thickness(2, 3, 2, 3) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var name = new TextBlock
+        {
+            Text = NodeLabel(node),
+            FontSize = fontSize,
+            Foreground = SecondaryBrush,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+
+        var amount = new TextBlock
+        {
+            Text = NodeAmount(node),
+            FontSize = fontSize - 0.5,
+            Foreground = MutedBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(amount, 1);
+
+        grid.Children.Add(name);
+        grid.Children.Add(amount);
+
+        return new NodeRowVisual { Root = grid, Name = name, Amount = amount };
+    }
+
+    private static LegendVisual CreateLegendRow(string category)
+    {
+        var color = IconCatalog.ForCategory(category).Color;
+
+        var row = new Grid { ColumnSpacing = 8 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var dot = new Microsoft.UI.Xaml.Shapes.Ellipse
+        {
+            Width = 8,
+            Height = 8,
+            Fill = new SolidColorBrush(color),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var label = new TextBlock
+        {
+            Text = category,
+            FontSize = 11.5,
+            Foreground = SecondaryBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var amount = new TextBlock
+        {
+            FontSize = 10.5,
+            Foreground = MutedBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        Grid.SetColumn(label, 1);
+        Grid.SetColumn(amount, 2);
+        row.Children.Add(dot);
+        row.Children.Add(label);
+        row.Children.Add(amount);
+
+        return new LegendVisual { Root = row, Amount = amount };
+    }
+
+    private static bool SameKeys(IReadOnlyList<string> left, IReadOnlyList<string> right)
+    {
+        if (left.Count != right.Count) return false;
+        for (int i = 0; i < left.Count; i++)
+        {
+            if (!string.Equals(left[i], right[i], StringComparison.Ordinal)) return false;
+        }
+
+        return true;
+    }
+
+    private sealed class AppVisual
+    {
+        public required Expander Expander { get; init; }
+
+        public required TextBlock Detail { get; init; }
+
+        public required TextBlock Total { get; init; }
+
+        public required StackPanel NodeRows { get; init; }
+
+        public Dictionary<string, NodeRowVisual> Nodes { get; } = new(StringComparer.Ordinal);
+
+        public List<string> NodeOrder { get; } = [];
+    }
+
+    private sealed class NodeRowVisual
+    {
+        public required Grid Root { get; init; }
+
+        public required TextBlock Name { get; init; }
+
+        public required TextBlock Amount { get; init; }
+    }
+
+    private sealed class NodeCardVisual
+    {
+        public required Border Root { get; init; }
+
+        public required TextBlock Badge { get; init; }
+
+        public required TextBlock Total { get; init; }
+
+        public required TextBlock Billed { get; init; }
+
+        public required TextBlock Actual { get; init; }
+    }
+
+    private sealed class LegendVisual
+    {
+        public required Grid Root { get; init; }
+
+        public required TextBlock Amount { get; init; }
     }
 
     private void ShowMultiplierEditor(FrameworkElement anchor, string node)
@@ -464,36 +704,6 @@ public sealed partial class TrafficView : UserControl
         };
 
         flyout.ShowAt(anchor);
-    }
-
-    private static FrameworkElement BuildNodeRow(ProxyNodeUsage node, double fontSize)
-    {
-        var grid = new Grid { ColumnSpacing = 8, Padding = new Thickness(2, 3, 2, 3) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var name = new TextBlock
-        {
-            Text = node.Multiplier != 1 ? $"{node.Node}   ×{node.Multiplier:0.##}" : node.Node,
-            FontSize = fontSize,
-            Foreground = SecondaryBrush,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        };
-
-        var amount = new TextBlock
-        {
-            Text = node.BilledTotal != node.Total
-                ? $"↓ {ByteFormatter.Size(node.Rx)}   ↑ {ByteFormatter.Size(node.Tx)}   计费 {ByteFormatter.Size(node.BilledTotal)}"
-                : $"↓ {ByteFormatter.Size(node.Rx)}   ↑ {ByteFormatter.Size(node.Tx)}",
-            FontSize = fontSize - 0.5,
-            Foreground = MutedBrush,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid.SetColumn(amount, 1);
-
-        grid.Children.Add(name);
-        grid.Children.Add(amount);
-        return grid;
     }
 
     private static TextBlock MutedLabel(string text) => new()

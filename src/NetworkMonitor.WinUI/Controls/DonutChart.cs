@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
@@ -29,6 +29,7 @@ public sealed class DonutChart : UserControl
     };
 
     private IReadOnlyList<DonutSlice> _slices = [];
+    private string _signature = string.Empty;
 
     public DonutChart()
     {
@@ -56,6 +57,12 @@ public sealed class DonutChart : UserControl
         _slices = slices;
         _valueText.Text = centerValue;
         _labelText.Text = centerLabel;
+
+        // 数据没变就不重画，避免每次轮询清掉重绘圆环造成闪烁。
+        var signature = centerValue + "|" + string.Join('|', slices.Select(slice => slice.Value + ":" + slice.Color));
+        if (signature == _signature) return;
+
+        _signature = signature;
         Redraw();
     }
 
