@@ -25,29 +25,7 @@
                 <TextBlock x:Name="StatusText" Text="实时监控" FontSize="11" VerticalAlignment="Center"
                            Foreground="{StaticResource TextMutedBrush}" />
 
-                <Button x:Name="BackButton" Style="{StaticResource TitleIconButton}" Width="62"
-                        Margin="6,0,0,0" Visibility="Collapsed" Click="Back_Click"
-                        ToolTipService.ToolTip="返回首页">
-                    <StackPanel Orientation="Horizontal" Spacing="3">
-                        <Image Source="ms-appx:///Assets/Icons/back_93A2B8.svg" Width="11" Height="11" />
-                        <TextBlock Text="首页" FontSize="11" />
-                    </StackPanel>
-                </Button>
-
-                <Button x:Name="SettingsButton" Style="{StaticResource TitleIconButton}" Margin="8,0,0,0"
-                        ToolTipService.ToolTip="设置" Click="Settings_Click">
-                    <Image Source="ms-appx:///Assets/Icons/settings_93A2B8.svg" Width="13" Height="13" />
-
-                </Button>
-                <Button x:Name="TrafficButton" Style="{StaticResource TitleIconButton}"
-                        ToolTipService.ToolTip="应用流量（FlClash）" Click="Traffic_Click">
-                    <Image Source="ms-appx:///Assets/Icons/traffic_5B9DFF.svg" Width="13" Height="13" />
-                </Button>
-                <Button x:Name="ProcessButton" Style="{StaticResource TitleIconButton}"
-                        ToolTipService.ToolTip="进程流量（全系统）" Click="Process_Click">
-                    <Image Source="ms-appx:///Assets/Icons/process_818CF8.svg" Width="13" Height="13" />
-                </Button>
-                <Button x:Name="FloatButton" Style="{StaticResource TitleIconButton}"
+                <Button x:Name="FloatButton" Style="{StaticResource TitleIconButton}" Margin="8,0,0,0"
                         ToolTipService.ToolTip="显示 / 隐藏悬浮窗" Click="FloatButton_Click">
                     <Image Source="ms-appx:///Assets/Icons/window_93A2B8.svg" Width="13" Height="13" />
                 </Button>
@@ -67,8 +45,100 @@
 
 
 
+        <!-- page navigation + content -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="NavColumn" Width="104" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- left rail -->
+            <Border Grid.Column="0" Background="{StaticResource NavRailBrush}"
+                    BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,1,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel x:Name="NavItems" Spacing="2" Margin="8,10,8,0">
+                        <Button x:Name="NavHome" Style="{StaticResource NavItemButton}" Tag="Home"
+                                Click="Nav_Click" ToolTipService.ToolTip="首页">
+                            <Grid>
+                                <Border x:Name="NavHomeBar" Width="3" Height="18" CornerRadius="2" Margin="2,0,0,0"
+                                        HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        Background="{StaticResource AccentBrush}" Opacity="0" />
+                                <StackPanel x:Name="NavHomeContent" Spacing="7" HorizontalAlignment="Center"
+                                            VerticalAlignment="Center">
+                                    <Image x:Name="NavHomeIcon" Source="ms-appx:///Assets/Icons/nav_home_A9B6CA.svg"
+                                           Width="20" Height="20" HorizontalAlignment="Center" />
+                                    <TextBlock x:Name="NavHomeLabel" Text="首页" FontSize="11"
+                                               HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+
+                        <Button x:Name="NavTraffic" Style="{StaticResource NavItemButton}" Tag="Traffic"
+                                Click="Nav_Click" ToolTipService.ToolTip="应用流量（FlClash）">
+                            <Grid>
+                                <Border x:Name="NavTrafficBar" Width="3" Height="18" CornerRadius="2" Margin="2,0,0,0"
+                                        HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        Background="{StaticResource AccentBrush}" Opacity="0" />
+                                <StackPanel x:Name="NavTrafficContent" Spacing="7" HorizontalAlignment="Center"
+                                            VerticalAlignment="Center">
+                                    <Image x:Name="NavTrafficIcon" Source="ms-appx:///Assets/Icons/nav_apps_A9B6CA.svg"
+                                           Width="20" Height="20" HorizontalAlignment="Center" />
+                                    <TextBlock x:Name="NavTrafficLabel" Text="应用流量" FontSize="11"
+                                               HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+
+                        <Button x:Name="NavProcess" Style="{StaticResource NavItemButton}" Tag="Process"
+                                Click="Nav_Click" ToolTipService.ToolTip="进程流量（全系统）">
+                            <Grid>
+                                <Border x:Name="NavProcessBar" Width="3" Height="18" CornerRadius="2" Margin="2,0,0,0"
+                                        HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        Background="{StaticResource AccentBrush}" Opacity="0" />
+                                <StackPanel x:Name="NavProcessContent" Spacing="7" HorizontalAlignment="Center"
+                                            VerticalAlignment="Center">
+                                    <Image x:Name="NavProcessIcon" Source="ms-appx:///Assets/Icons/nav_process_A9B6CA.svg"
+                                           Width="20" Height="20" HorizontalAlignment="Center" />
+                                    <TextBlock x:Name="NavProcessLabel" Text="进程流量" FontSize="11"
+                                               HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+
+                        <Button x:Name="NavSettings" Style="{StaticResource NavItemButton}" Tag="Settings"
+                                Click="Nav_Click" ToolTipService.ToolTip="设置">
+                            <Grid>
+                                <Border x:Name="NavSettingsBar" Width="3" Height="18" CornerRadius="2" Margin="2,0,0,0"
+                                        HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        Background="{StaticResource AccentBrush}" Opacity="0" />
+                                <StackPanel x:Name="NavSettingsContent" Spacing="7" HorizontalAlignment="Center"
+                                            VerticalAlignment="Center">
+                                    <Image x:Name="NavSettingsIcon" Source="ms-appx:///Assets/Icons/nav_settings_A9B6CA.svg"
+                                           Width="20" Height="20" HorizontalAlignment="Center" />
+                                    <TextBlock x:Name="NavSettingsLabel" Text="设置" FontSize="11"
+                                               HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                    </StackPanel>
+
+                    <Button x:Name="NavToggle" Grid.Row="1" Style="{StaticResource NavToggleButton}"
+                            Margin="8,0,8,10" Click="NavToggle_Click" ToolTipService.ToolTip="收起导航栏">
+                        <Image x:Name="NavToggleIcon" Source="ms-appx:///Assets/Icons/nav_collapse_A9B6CA.svg"
+                               Width="12" Height="12" />
+                    </Button>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Column="1">
+
         <!-- content -->
-        <ScrollViewer x:Name="HomeScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer x:Name="HomeScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel Margin="18,0,18,18" Spacing="10">
 
                 <!-- live speed -->
@@ -206,18 +276,18 @@
             </StackPanel>
         </ScrollViewer>
 
-        <ScrollViewer x:Name="TrafficScroll" Grid.Row="1" Visibility="Collapsed"
+        <ScrollViewer x:Name="TrafficScroll" Visibility="Collapsed"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <controls:TrafficView x:Name="TrafficPanel" Margin="18,2,18,14" />
         </ScrollViewer>
 
-        <ScrollViewer x:Name="ProcessScroll" Grid.Row="1" Visibility="Collapsed"
+        <ScrollViewer x:Name="ProcessScroll" Visibility="Collapsed"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <controls:ProcessTrafficView x:Name="ProcessPanel" Margin="18,2,18,14" />
         </ScrollViewer>
 
 
-        <ScrollViewer x:Name="SettingsScroll" Grid.Row="1" Visibility="Collapsed"
+        <ScrollViewer x:Name="SettingsScroll" Visibility="Collapsed"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel Margin="18,0,18,18" Spacing="10">
                 <StackPanel Orientation="Horizontal" Spacing="7" Margin="2,2,0,0">
@@ -305,6 +375,9 @@
                             
             </StackPanel>
         </ScrollViewer>
+
+            </Grid>
+        </Grid>
 
         <!-- tray -->
         <tb:TaskbarIcon x:Name="Tray" ToolTipText="NetworkMonitor" NoLeftClickDelay="True">

@@ -29,6 +29,9 @@ public sealed class AppSettings
     /// </summary>
     public bool ProcessTrafficEnabled { get; set; } = true;
 
+    /// <summary>Collapses the left navigation rail to an icon-only strip.</summary>
+    public bool NavCollapsed { get; set; }
+
     public bool AutoCheckUpdates { get; set; } = true;
 
     /// <summary>UI / sampling refresh interval in seconds (1, 2 or 5).</summary>

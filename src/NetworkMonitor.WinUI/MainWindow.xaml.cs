@@ -19,6 +19,7 @@ using NetworkMonitor.Core.Storage;
 using NetworkMonitor.WinUI.Interop;
 using NetworkMonitor.WinUI.Services;
 using Windows.Graphics;
+using Windows.UI;
 
 namespace NetworkMonitor.WinUI;
 
@@ -28,9 +29,9 @@ public sealed partial class MainWindow : Window
 
     // Minimum window size in DIP. Also enforced by WM_GETMINMAXINFO, so a broken
     // size can never be persisted and re-used on the next launch.
-    private const int MinWindowWidthDip = 420;
+    private const int MinWindowWidthDip = 560;
     private const int MinWindowHeightDip = 560;
-    private const int DefaultWindowWidthDip = 520;
+    private const int DefaultWindowWidthDip = 640;
     private const int DefaultWindowHeightDip = 800;
 
     private readonly IMonitoringSource _monitor;
@@ -52,7 +53,17 @@ public sealed partial class MainWindow : Window
     private bool _pendingProcessPage;
     private bool _syncingRefresh;
     private PageMode _page = PageMode.Home;
-    private PageMode _previousPage = PageMode.Home;
+    private bool _navCollapsed;
+
+    private const double NavExpandedWidth = 104;
+    private const double NavCollapsedWidth = 56;
+    private const double NavItemExpandedHeight = 66;
+    private const double NavItemCollapsedHeight = 46;
+
+    private static readonly SolidColorBrush NavSelectedBackground = new(Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF));
+    private static readonly SolidColorBrush NavTransparentBackground = new(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF));
+    private static readonly SolidColorBrush NavSelectedLabel = new(Color.FromArgb(0xFF, 0xF2, 0xF6, 0xFC));
+    private static readonly SolidColorBrush NavNormalLabel = new(Color.FromArgb(0xFF, 0xA9, 0xB6, 0xCA));
 
     private enum PageMode
     {
@@ -153,6 +164,9 @@ public sealed partial class MainWindow : Window
         TrafficPanel.Attach(App.Instance.ProxyTraffic);
         ProcessPanel.Attach(App.Instance.ProcessTraffic);
         SetRefreshInterval(_settings.RefreshIntervalSeconds);
+
+        _navCollapsed = _settings.NavCollapsed;
+        ApplyNavLayout();
         _homeTrafficTimer.Tick += async (_, _) => await RefreshHomeTrafficAsync();
         _homeTrafficTimer.Start();
         _ = RefreshHomeTrafficAsync();
@@ -550,13 +564,63 @@ public sealed partial class MainWindow : Window
     private void FloatButton_Click(object sender, RoutedEventArgs e) =>
         App.Instance.SetFloatingVisible(!_settings.ShowFloatingWindow);
 
-    private void Traffic_Click(object sender, RoutedEventArgs e) => ShowTrafficTab();
+    private void Nav_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button
+            && button.Tag is string tag
+            && Enum.TryParse<PageMode>(tag, out var page))
+        {
+            Navigate(page);
+        }
+    }
 
-    private void Process_Click(object sender, RoutedEventArgs e) => ShowProcessTab();
+    private void NavToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _navCollapsed = !_navCollapsed;
+        ApplyNavLayout();
+
+        _settings.NavCollapsed = _navCollapsed;
+        _settings.Save();
+    }
+
+    /// <summary>Applies the rail width and the collapsed/expanded item layout.</summary>
+    private void ApplyNavLayout()
+    {
+        NavColumn.Width = new GridLength(_navCollapsed ? NavCollapsedWidth : NavExpandedWidth);
+
+        TextBlock[] labels = [NavHomeLabel, NavTrafficLabel, NavProcessLabel, NavSettingsLabel];
+        foreach (var label in labels)
+            label.Visibility = _navCollapsed ? Visibility.Collapsed : Visibility.Visible;
+
+        Button[] items = [NavHome, NavTraffic, NavProcess, NavSettings];
+        foreach (var item in items)
+            item.Height = _navCollapsed ? NavItemCollapsedHeight : NavItemExpandedHeight;
+
+        string icon = _navCollapsed
+            ? "ms-appx:///Assets/Icons/nav_expand_A9B6CA.svg"
+            : "ms-appx:///Assets/Icons/nav_collapse_A9B6CA.svg";
+        NavToggleIcon.Source = new BitmapImage(new Uri(icon));
+        ToolTipService.SetToolTip(NavToggle, _navCollapsed ? "展开导航栏" : "收起导航栏");
+
+        UpdateNavSelection();
+    }
+
+    private void UpdateNavSelection()
+    {
+        ApplyNavItemState(NavHome, NavHomeBar, NavHomeLabel, _page == PageMode.Home);
+        ApplyNavItemState(NavTraffic, NavTrafficBar, NavTrafficLabel, _page == PageMode.Traffic);
+        ApplyNavItemState(NavProcess, NavProcessBar, NavProcessLabel, _page == PageMode.Process);
+        ApplyNavItemState(NavSettings, NavSettingsBar, NavSettingsLabel, _page == PageMode.Settings);
+    }
+
+    private static void ApplyNavItemState(Button button, Border bar, TextBlock label, bool selected)
+    {
+        button.Background = selected ? NavSelectedBackground : NavTransparentBackground;
+        bar.Opacity = selected ? 1 : 0;
+        label.Foreground = selected ? NavSelectedLabel : NavNormalLabel;
+    }
 
     private void ShowTrafficPage_Click(object sender, RoutedEventArgs e) => ShowTrafficTab();
-
-    private void Settings_Click(object sender, RoutedEventArgs e) => Navigate(PageMode.Settings);
 
     public void ShowTrafficTab()
     {
@@ -580,15 +644,11 @@ public sealed partial class MainWindow : Window
         Navigate(PageMode.Process);
     }
 
-    private void Back_Click(object sender, RoutedEventArgs e) =>
-        Navigate(_previousPage is PageMode.Traffic or PageMode.Process ? _previousPage : PageMode.Home);
-
     private void Navigate(PageMode page)
     {
         _pendingTrafficPage = false;
         _pendingProcessPage = false;
 
-        if (page != _page) _previousPage = _page;
         _page = page;
 
         HomeScroll.Visibility = page == PageMode.Home ? Visibility.Visible : Visibility.Collapsed;
@@ -596,10 +656,7 @@ public sealed partial class MainWindow : Window
         ProcessScroll.Visibility = page == PageMode.Process ? Visibility.Visible : Visibility.Collapsed;
         SettingsScroll.Visibility = page == PageMode.Settings ? Visibility.Visible : Visibility.Collapsed;
 
-        BackButton.Visibility = page == PageMode.Home ? Visibility.Collapsed : Visibility.Visible;
-        TrafficButton.Visibility = page == PageMode.Home ? Visibility.Visible : Visibility.Collapsed;
-        ProcessButton.Visibility = page == PageMode.Home ? Visibility.Visible : Visibility.Collapsed;
-        SettingsButton.Visibility = page == PageMode.Settings ? Visibility.Collapsed : Visibility.Visible;
+        UpdateNavSelection();
 
         switch (page)
         {
