@@ -225,6 +225,15 @@ public partial class App : Application
         _main?.SyncToggles();
     }
 
+    /// <summary>Applies floating-window preferences that are edited in the settings page.</summary>
+    public void ApplyFloatingSettings()
+    {
+        if (_floating is null) return;
+
+        _floating.ApplySettings();
+        if (_lastSample is { } sample) _floating.SetSpeed(sample);
+    }
+
     public void SetTaskbarVisible(bool visible)
     {
         Settings.ShowTaskbarWindow = visible;

@@ -13,7 +13,7 @@ Windows 网速与流量监控，常驻托盘 / 悬浮窗 / 任务栏。
 - **独立设置页**：显示、系统、刷新速度、网卡、控制器、版本更新集中在一页
 - **刷新速度**：1 / 2 / 5 秒可选，作用于网速、应用流量和界面刷新
 - 系统托盘常驻：左键打开主界面，右键菜单切换悬浮窗 / 任务栏条 / 开机自启
-- 桌面悬浮小窗：可拖动，双击打开主界面
+- 桌面悬浮小窗：可拖动，双击打开主界面；内容、字号、配色、背景与交互都可在设置页调整
 - 任务栏网速条：贴在通知区域左侧，原生 layered window，只画文字、完全透明无背景
 - 亚克力背景 + 圆角卡片，设置面板用 CommunityToolkit 的 `SettingsCard`
 - 开机自启（`HKCU\...\Run`，不需要管理员权限；后台服务由 SCM 自启，注册时需要一次管理员权限）
@@ -111,6 +111,10 @@ NetworkMonitor.exe           (托盘 / 悬浮窗 / 任务栏条 / 设置，只�
 - 停靠后是子窗口，拿不到 DWM 亚克力，所以定位后采样任务栏的实际像素颜色并画同色背景，视觉上等于没有背景（主窗口和悬浮窗仍然保留亚克力）
 - Explorer 重启会让父任务栏和子窗口一起销毁，此时**不能对旧 WinUI Window 调 `Close()`**（会崩 coreclr），而是丢弃旧对象、重建窗口再挂载
 - 卡片圆角 14、统计卡 12；首页 / 应用流量 / 进程流量 / 设置是四个页面，用左侧导航栏切换（WinUI `NavigationView`，默认展开 148px、顶部汉堡按钮可收成 48px 图标栏，展开状态写入 `settings.json` 的 `navCollapsed`），节点用两列卡片网格展示
+- **悬浮窗按内容自适应尺寸**：`ContentPanel.Measure` 量出 DIP 尺寸后加 padding、按 `GetDpiForWindow` 换算成物理像素再 `AppWindow.ResizeClient`。改设置时先把 `SessionText` 的可见性/文字更新完**再**量尺寸，否则第二行还没参与测量，窗口会保持一行高
+- **悬浮窗设置项回写要防抖 + 防回环**：`PopulateFloatingCombos()` 加第一个 `ComboBoxItem` 会立刻触发一次 `SelectionChanged`（此时 `_settings` 甚至还是 null），必须整段包在 `_syncingToggles = true` 里；不透明度滑块在拖动中每帧都触发，用 120ms `DispatcherTimer` 合并后再 `Save()` + 重排窗口
+- `Slider` 的 `Minimum` 不能大于当前 `Value`，XAML 里直接写 `Minimum="30"` 会在 `InitializeComponent()` 抛 `XamlParseException`（默认 `Value=0`），所以 XAML 用 `Minimum="0"`，等 `Value` 设好后再在代码里抬到 30
+- 设置页的 `ToggleSwitch`/`ComboBox` 事件在 `InitializeComponent()` 期间就会触发，此时 `_settings` 尚未赋值，处理器里必须 `if (_settings is null) return;`
 - 图标使用 Bootstrap Icons（MIT）SVG，分类带独立颜色；实际流量用青色、计费流量用琥珀色，关键数字一眼可区分
 - 网卡选择与统计信息已移入设置面板，首页底部只保留功能内容
 
@@ -170,7 +174,7 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 
 ## 版本、CI 与自动更新
 
-当前版本 **1.6.1**，显示在「设置 → 版本」。
+当前版本 **1.7.0**，显示在「设置 → 版本」。
 
 ### CI
 
@@ -190,7 +194,7 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 仓库地址已配置为 `https://github.com/TypeDreamMoon/NetworkMonitor`。CI 会把 `RepositoryUrl` 覆盖成当前仓库。发布命令：
 
 ```powershell
-git tag v1.6.1
+git tag v1.7.0
 git push origin v1.6.1
 ```
 

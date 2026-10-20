@@ -46,6 +46,39 @@ public sealed class AppSettings
     public double? FloatingLeft { get; set; }
     public double? FloatingTop { get; set; }
 
+    /// <summary>Shows the download rate in the floating window.</summary>
+    public bool FloatingShowDown { get; set; } = true;
+
+    /// <summary>Shows the upload rate in the floating window.</summary>
+    public bool FloatingShowUp { get; set; } = true;
+
+    /// <summary>Appends this session's downloaded/uploaded totals under the rates.</summary>
+    public bool FloatingShowSession { get; set; }
+
+    /// <summary>Text scale of the floating window (0.85 compact, 1.0 normal, 1.25 large).</summary>
+    public double FloatingScale { get; set; } = 1.0;
+
+    /// <summary>Background opacity of the floating window, 0.30 - 1.00.</summary>
+    public double FloatingOpacity { get; set; } = 0.70;
+
+    /// <summary>Uses the desktop acrylic material behind the floating window.</summary>
+    public bool FloatingAcrylic { get; set; } = true;
+
+    /// <summary>Hex colour of the download arrow/text.</summary>
+    public string FloatingDownColor { get; set; } = "#3EDCC4";
+
+    /// <summary>Hex colour of the upload arrow/text.</summary>
+    public string FloatingUpColor { get; set; } = "#FFB454";
+
+    /// <summary>Lets pointer input pass through the floating window to whatever is behind it.</summary>
+    public bool FloatingClickThrough { get; set; }
+
+    /// <summary>Keeps the floating window where it is: dragging is disabled.</summary>
+    public bool FloatingLocked { get; set; }
+
+    /// <summary>Snaps the floating window to the nearest screen edge when it is dropped.</summary>
+    public bool FloatingSnapEdges { get; set; } = true;
+
     /// <summary>Main window position in physical pixels (top-left of the window).</summary>
     public double? MainLeft { get; set; }
     public double? MainTop { get; set; }

@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -145,6 +146,11 @@ public sealed partial class MainWindow : Window
         RefreshCombo.Items.Clear();
         foreach (int seconds in new[] { 1, 2, 5 })
             RefreshCombo.Items.Add(new ComboBoxItem { Content = $"{seconds} 秒", Tag = seconds });
+
+        _syncingToggles = true;
+        PopulateFloatingCombos();
+        _syncingToggles = false;
+        SyncFloatingControls();
         RefreshCombo.SelectedIndex = _settings.RefreshIntervalSeconds switch
         {
             2 => 1,
@@ -506,6 +512,151 @@ public sealed partial class MainWindow : Window
 
     // ---------- toggles ----------
 
+    private static readonly (string Label, string Hex)[] FloatingPalette =
+    [
+        ("青", "#3EDCC4"),
+        ("蓝", "#5B9DFF"),
+        ("琥珀", "#FFB454"),
+        ("粉", "#F472B6"),
+        ("绿", "#34D399"),
+        ("紫", "#A78BFA"),
+        ("白", "#E9EFF8"),
+    ];
+
+    private DispatcherTimer? _floatDebounce;
+
+    private void PopulateFloatingCombos()
+    {
+        FloatScaleCombo.Items.Clear();
+        foreach (var (label, value) in new (string, double)[] { ("紧凑", 0.85), ("标准", 1.0), ("大", 1.25) })
+            FloatScaleCombo.Items.Add(new ComboBoxItem { Content = label, Tag = value });
+
+        foreach (var combo in new[] { FloatDownColorCombo, FloatUpColorCombo })
+        {
+            combo.Items.Clear();
+            foreach (var (label, hex) in FloatingPalette)
+            {
+                var item = new ComboBoxItem { Content = label, Tag = hex };
+                item.PointerEntered += (sender, _) =>
+                {
+                    if (sender is ComboBoxItem entry) entry.Background = null;
+                };
+                combo.Items.Add(item);
+            }
+        }
+    }
+
+    private void SyncFloatingControls()
+    {
+        bool previous = _syncingToggles;
+        _syncingToggles = true;
+        try
+        {
+            FloatDownSwitch.IsOn = _settings.FloatingShowDown;
+            FloatUpSwitch.IsOn = _settings.FloatingShowUp;
+            FloatSessionSwitch.IsOn = _settings.FloatingShowSession;
+            FloatAcrylicSwitch.IsOn = _settings.FloatingAcrylic;
+            FloatClickThroughSwitch.IsOn = _settings.FloatingClickThrough;
+            FloatLockSwitch.IsOn = _settings.FloatingLocked;
+            FloatSnapSwitch.IsOn = _settings.FloatingSnapEdges;
+
+            FloatOpacitySlider.Value = Math.Clamp(_settings.FloatingOpacity * 100, 30, 100);
+            FloatOpacitySlider.Minimum = 30;
+
+            SelectFloatingItem(FloatScaleCombo, Math.Round(_settings.FloatingScale, 2));
+            SelectFloatingItem(FloatDownColorCombo, _settings.FloatingDownColor.ToUpperInvariant());
+            SelectFloatingItem(FloatUpColorCombo, _settings.FloatingUpColor.ToUpperInvariant());
+        }
+        finally
+        {
+            _syncingToggles = previous;
+        }
+    }
+
+    private static void SelectFloatingItem(ComboBox combo, object value)
+    {
+        foreach (var item in combo.Items.OfType<ComboBoxItem>())
+        {
+            if (Equals(item.Tag, value))
+            {
+                combo.SelectedItem = item;
+                return;
+            }
+        }
+
+        combo.SelectedIndex = 0;
+    }
+
+    private void FloatingToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_syncingToggles || _settings is null || sender is not ToggleSwitch toggle) return;
+
+        bool on = toggle.IsOn;
+        switch (toggle.Tag as string)
+        {
+            case "down": _settings.FloatingShowDown = on; break;
+            case "up": _settings.FloatingShowUp = on; break;
+            case "session": _settings.FloatingShowSession = on; break;
+            case "acrylic": _settings.FloatingAcrylic = on; break;
+            case "clickthrough": _settings.FloatingClickThrough = on; break;
+            case "lock": _settings.FloatingLocked = on; break;
+            case "snap": _settings.FloatingSnapEdges = on; break;
+            default: return;
+        }
+
+        _settings.Save();
+        App.Instance.ApplyFloatingSettings();
+    }
+
+    private void FloatingCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingToggles || _settings is null || sender is not ComboBox combo || combo.SelectedItem is not ComboBoxItem item) return;
+
+        switch (combo.Tag as string)
+        {
+            case "scale" when item.Tag is double scale:
+                _settings.FloatingScale = scale;
+                break;
+            case "downcolor" when item.Tag is string down:
+                _settings.FloatingDownColor = down;
+                break;
+            case "upcolor" when item.Tag is string up:
+                _settings.FloatingUpColor = up;
+                break;
+            default:
+                return;
+        }
+
+        _settings.Save();
+        App.Instance.ApplyFloatingSettings();
+    }
+
+    private void FloatingOpacity_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_syncingToggles || _settings is null) return;
+
+        _settings.FloatingOpacity = Math.Clamp(Math.Round(FloatOpacitySlider.Value), 30, 100) / 100.0;
+        ScheduleFloatingApply();
+    }
+
+    // A slider drag fires many changes per second; coalesce them so resizing stays smooth.
+    private void ScheduleFloatingApply()
+    {
+        if (_floatDebounce is null)
+        {
+            _floatDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+            _floatDebounce.Tick += (_, _) =>
+            {
+                _floatDebounce?.Stop();
+                _settings.Save();
+                App.Instance.ApplyFloatingSettings();
+            };
+        }
+
+        _floatDebounce.Stop();
+        _floatDebounce.Start();
+    }
+
     public void SyncToggles()
     {
         _syncingToggles = true;
@@ -518,6 +669,8 @@ public sealed partial class MainWindow : Window
             TrayFloating.IsChecked = _settings.ShowFloatingWindow;
             TrayTaskbar.IsChecked = _settings.ShowTaskbarWindow;
             TrayStartup.IsChecked = StartupRegistration.IsEnabled();
+
+            SyncFloatingControls();
         }
         finally
         {

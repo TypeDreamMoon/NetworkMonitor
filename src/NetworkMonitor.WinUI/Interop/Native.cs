@@ -8,6 +8,7 @@ internal static class Native
     public const int GWL_EXSTYLE = -20;
     public const long WS_EX_TOOLWINDOW = 0x00000080;
     public const long WS_EX_NOACTIVATE = 0x08000000;
+    public const long WS_EX_TRANSPARENT = 0x00000020;
 
     public const int SW_HIDE = 0;
     public const int SW_SHOWNOACTIVATE = 4;
@@ -188,6 +189,20 @@ internal static class Native
         long style = GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
         style |= WS_EX_TOOLWINDOW;
         if (noActivate) style |= WS_EX_NOACTIVATE;
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(style));
+    }
+
+    /// <summary>
+    /// Toggles pointer pass-through (WS_EX_TRANSPARENT) so clicks land on whatever is behind
+    /// the window instead of the window itself.
+    /// </summary>
+    public static void SetClickThrough(Window window, bool enabled)
+    {
+        IntPtr hwnd = Handle(window);
+        if (hwnd == IntPtr.Zero) return;
+
+        long style = GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
+        style = enabled ? style | WS_EX_TRANSPARENT : style & ~WS_EX_TRANSPARENT;
         SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(style));
     }
 

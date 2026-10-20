@@ -4,21 +4,26 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="NetworkMonitor 悬浮窗">
 
-    <Grid x:Name="Root" RequestedTheme="Dark" Background="#B30B0F16" Padding="14,0"
+    <Grid x:Name="Root" RequestedTheme="Dark" Background="#B30B0F16" Padding="14,6"
           PointerPressed="Root_PointerPressed" PointerMoved="Root_PointerMoved" PointerReleased="Root_PointerReleased" DoubleTapped="Root_DoubleTapped">
-        <StackPanel Orientation="Horizontal" Spacing="14" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <StackPanel Orientation="Horizontal" Spacing="5">
-                <TextBlock Text="↓" Foreground="{StaticResource DownBrush}" FontSize="13" FontWeight="Bold"
-                           VerticalAlignment="Center" />
-                <TextBlock x:Name="DownText" Text="—" FontSize="13" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center" />
+        <StackPanel x:Name="ContentPanel" Spacing="2" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="14" HorizontalAlignment="Center">
+                <StackPanel x:Name="DownGroup" Orientation="Horizontal" Spacing="5">
+                    <TextBlock x:Name="DownArrow" Text="↓" Foreground="{StaticResource DownBrush}" FontSize="13"
+                               FontWeight="Bold" VerticalAlignment="Center" />
+                    <TextBlock x:Name="DownText" Text="—" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel x:Name="UpGroup" Orientation="Horizontal" Spacing="5">
+                    <TextBlock x:Name="UpArrow" Text="↑" Foreground="{StaticResource UpBrush}" FontSize="13"
+                               FontWeight="Bold" VerticalAlignment="Center" />
+                    <TextBlock x:Name="UpText" Text="—" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                </StackPanel>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Spacing="5">
-                <TextBlock Text="↑" Foreground="{StaticResource UpBrush}" FontSize="13" FontWeight="Bold"
-                           VerticalAlignment="Center" />
-                <TextBlock x:Name="UpText" Text="—" FontSize="13" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center" />
-            </StackPanel>
+            <TextBlock x:Name="SessionText" Text="" FontSize="10.5" Visibility="Collapsed"
+                       Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Center"
+                       TextAlignment="Center" />
         </StackPanel>
     </Grid>
 </Window>

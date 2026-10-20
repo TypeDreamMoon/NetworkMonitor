@@ -262,6 +262,52 @@
                                     <ToggleSwitch x:Name="TaskbarSwitch" OnContent="" OffContent=""
                                                   Toggled="TaskbarSwitch_Toggled" />
                                 </toolkit:SettingsCard>
+                                <TextBlock Text="悬浮窗" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextMutedBrush}" Margin="4,8,0,2" />
+                                <toolkit:SettingsCard Header="显示下行速率" Description="下载方向的箭头与数字">
+                                    <ToggleSwitch x:Name="FloatDownSwitch" OnContent="" OffContent="" Tag="down"
+                                                  Toggled="FloatingToggle_Toggled" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="显示上行速率" Description="上传方向的箭头与数字">
+                                    <ToggleSwitch x:Name="FloatUpSwitch" OnContent="" OffContent="" Tag="up"
+                                                  Toggled="FloatingToggle_Toggled" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="显示本次会话总量" Description="在速率下方多显示一行累计收发">
+                                    <ToggleSwitch x:Name="FloatSessionSwitch" OnContent="" OffContent="" Tag="session"
+                                                  Toggled="FloatingToggle_Toggled" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="文字大小" Description="文字与窗口一起缩放">
+                                    <ComboBox x:Name="FloatScaleCombo" Width="140" Height="32" FontSize="12" Tag="scale"
+                                              SelectionChanged="FloatingCombo_SelectionChanged" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="背景不透明度" Description="数值越小越透明">
+                                    <Slider x:Name="FloatOpacitySlider" Width="160" Minimum="0" Maximum="100"
+                                            StepFrequency="5" ValueChanged="FloatingOpacity_ValueChanged" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="亚克力背景" Description="关闭后使用纯色半透明背景">
+                                    <ToggleSwitch x:Name="FloatAcrylicSwitch" OnContent="" OffContent="" Tag="acrylic"
+                                                  Toggled="FloatingToggle_Toggled" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="箭头配色" Description="左侧下行，右侧上行">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <ComboBox x:Name="FloatDownColorCombo" Width="104" Height="32" FontSize="12"
+                                                  Tag="downcolor" SelectionChanged="FloatingCombo_SelectionChanged" />
+                                        <ComboBox x:Name="FloatUpColorCombo" Width="104" Height="32" FontSize="12"
+                                                  Tag="upcolor" SelectionChanged="FloatingCombo_SelectionChanged" />
+                                    </StackPanel>
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="鼠标穿透" Description="点击直接落到下方窗口，悬浮窗只负责显示">
+                                    <ToggleSwitch x:Name="FloatClickThroughSwitch" OnContent="" OffContent="" Tag="clickthrough"
+                                                  Toggled="FloatingToggle_Toggled" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="锁定位置" Description="禁止拖动，防止误碰">
+                                    <ToggleSwitch x:Name="FloatLockSwitch" OnContent="" OffContent="" Tag="lock"
+                                                  Toggled="FloatingToggle_Toggled" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="贴边吸附" Description="拖到屏幕边缘时自动对齐">
+                                    <ToggleSwitch x:Name="FloatSnapSwitch" OnContent="" OffContent="" Tag="snap"
+                                                  Toggled="FloatingToggle_Toggled" />
+                                </toolkit:SettingsCard>
                                 <TextBlock Text="系统" FontSize="12" FontWeight="SemiBold"
                                            Foreground="{StaticResource TextMutedBrush}" Margin="4,8,0,2" />
                                 <toolkit:SettingsCard Header="开机自启" Description="登录 Windows 后自动在托盘运行">
