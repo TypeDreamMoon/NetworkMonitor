@@ -82,6 +82,43 @@ jobs:
           Compress-Archive -Path publish\* `
             -DestinationPath "NetworkMonitor-${{ steps.version.outputs.value }}-win-x64.zip"
 
+      - name: Build file manifest
+        shell: pwsh
+        run: |
+          ./tools/write_manifest.ps1 `
+            -PublishDir publish `
+            -Version "${{ steps.version.outputs.value }}" `
+            -Out "manifest-${{ steps.version.outputs.value }}.json"
+
+      - name: Build incremental patches
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ steps.version.outputs.value }}"
+          $tags = gh api "repos/${{ github.repository }}/releases?per_page=20" --jq '.[].tag_name' |
+            Where-Object { $_ -ne "v$version" } |
+            Select-Object -First 2
+
+          foreach ($tag in $tags) {
+            $oldVersion = $tag -replace '^v', ''
+            New-Item -ItemType Directory -Force old | Out-Null
+            gh release download $tag --pattern "manifest-*.json" --dir old --clobber 2>$null
+            $previous = Get-ChildItem old -Filter "manifest-*.json" -ErrorAction SilentlyContinue | Select-Object -First 1
+
+            if ($null -eq $previous) {
+              Write-Host "No manifest for $tag, skipping patch"
+            } else {
+              ./tools/make_patch.ps1 `
+                -PublishDir publish `
+                -Version $version `
+                -OldManifest $previous.FullName `
+                -Out "NetworkMonitor-patch-$oldVersion-to-$version.zip"
+            }
+
+            Remove-Item old -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -91,3 +128,5 @@ jobs:
           files: |
             installer/Output/NetworkMonitor-Setup-*.exe
             NetworkMonitor-*-win-x64.zip
+            manifest-*.json
+            NetworkMonitor-patch-*.zip

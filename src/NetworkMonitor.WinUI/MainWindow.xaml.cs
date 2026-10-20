@@ -812,14 +812,31 @@ public sealed partial class MainWindow : Window
     {
         string notes = string.IsNullOrWhiteSpace(info.Notes) ? "这个版本没有提供更新说明。" : info.Notes;
 
+        var size = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Text = info.Kind == UpdateKind.Patch
+                ? $"增量更新：只需下载 {ByteFormatter.Size(info.Size)}（完整安装包 {ByteFormatter.Size(info.FallbackSize)}）"
+                : $"完整安装包：{ByteFormatter.Size(info.Size)}",
+        };
+
+        if (Application.Current.Resources.TryGetValue("TextSecondaryBrush", out object? secondary) && secondary is Brush brush)
+        {
+            size.Foreground = brush;
+        }
+
+        var content = new StackPanel { Spacing = 10 };
+        content.Children.Add(size);
+        content.Children.Add(new ScrollViewer
+        {
+            MaxHeight = 280,
+            Content = new TextBlock { Text = notes, TextWrapping = TextWrapping.Wrap },
+        });
+
         var dialog = new ContentDialog
         {
             Title = $"发现新版本 v{info.Version}",
-            Content = new ScrollViewer
-            {
-                MaxHeight = 320,
-                Content = new TextBlock { Text = notes, TextWrapping = TextWrapping.Wrap },
-            },
+            Content = content,
             PrimaryButtonText = "下载并安装",
             CloseButtonText = "稍后",
             DefaultButton = ContentDialogButton.Primary,
@@ -844,8 +861,10 @@ public sealed partial class MainWindow : Window
     {
         using var cancellation = new CancellationTokenSource();
 
+        string prefix = info.Kind == UpdateKind.Patch ? "正在下载增量更新" : "正在下载更新";
+
         var progress = new ProgressBar { Minimum = 0, Maximum = 1, Width = 320 };
-        var text = new TextBlock { Text = "正在下载更新…", TextWrapping = TextWrapping.Wrap };
+        var text = new TextBlock { Text = prefix + "…", TextWrapping = TextWrapping.Wrap };
         var panel = new StackPanel { Spacing = 10 };
         panel.Children.Add(text);
         panel.Children.Add(progress);
@@ -866,15 +885,23 @@ public sealed partial class MainWindow : Window
             var reporter = new Progress<double>(value => DispatcherQueue.TryEnqueue(() =>
             {
                 progress.Value = value;
-                text.Text = $"正在下载更新… {value:P0}";
+                text.Text = $"{prefix}… {value:P0}";
             }));
 
-            string path = await _updates.DownloadAsync(info, reporter, cancellation.Token);
+            var status = new Progress<string>(message => DispatcherQueue.TryEnqueue(() =>
+            {
+                text.Text = message;
+                progress.Value = 0;
+            }));
+
+            PreparedUpdate prepared = await _updates.PrepareAsync(info, reporter, status, cancellation.Token);
 
             try { dialog.Hide(); } catch { /* already closed */ }
-            UpdateStatusText.Text = "下载完成，正在安装…";
+            UpdateStatusText.Text = prepared.Kind == UpdateKind.Patch
+                ? "增量包准备完成，正在应用…"
+                : "下载完成，正在安装…";
 
-            _updates.InstallAndRestart(path);
+            _updates.ApplyAndRestart(prepared);
             ((App)Application.Current).ExitApplication();
         }
         catch (OperationCanceledException)

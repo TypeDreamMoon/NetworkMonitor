@@ -170,7 +170,7 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 
 ## 版本、CI 与自动更新
 
-当前版本 **1.3.1**，显示在「设置 → 版本」。
+当前版本 **1.4.0**，显示在「设置 → 版本」。
 
 ### CI
 
@@ -183,24 +183,28 @@ Get-NetAdapterStatistics | Select-Object Name, ReceivedBytes, SentBytes
 2. 再发布同样自包含的 `NetworkMonitor.Service.exe` 到同一目录（服务与 UI 共用运行时，避免重复几十 MB）
 3. 用 Inno Setup 生成安装包 `NetworkMonitor-Setup-<version>.exe`（安装到 `%LOCALAPPDATA%\Programs\NetworkMonitor`；因为要注册 LocalSystem 后台服务，安装程序需要管理员权限，升级时会先停服务再替换文件）
 4. 生成便携版 `NetworkMonitor-<version>-win-x64.zip`
-5. 创建 GitHub Release，附上安装包和 zip，并自动生成 release notes
+5. 生成文件清单 `manifest-<version>.json`（每个文件的相对路径、大小、SHA256）
+6. 用最近 2 个旧版本的清单生成增量包 `NetworkMonitor-patch-<old>-to-<new>.zip`，只包含变化的文件
+7. 创建 GitHub Release，附上安装包、zip、清单和增量包，并自动生成 release notes
 
 仓库地址已配置为 `https://github.com/TypeDreamMoon/NetworkMonitor`。CI 会把 `RepositoryUrl` 覆盖成当前仓库。发布命令：
 
 ```powershell
-git tag v1.3.1
-git push origin v1.3.1
+git tag v1.4.0
+git push origin v1.4.0
 ```
 
 ### 自动更新
 
 - 设置 → 版本 → 检查更新；「自动检查更新」默认开启
-- 读取 GitHub 最新 release，只接受名字里带 `Setup` 的 `.exe`
-- 下载到临时目录，如果 API 提供 `sha256` 会校验
-- 静默运行安装包，安装完成后自动重启
+- 读取 GitHub 最新 release，优先使用与当前版本对应的增量包 `NetworkMonitor-patch-<当前版本>-to-<新版本>.zip`
+- 增量包只包含变化的文件：自包含发布的七百多个文件里，通常只有十来个 `NetworkMonitor*.dll/exe/pdb/deps.json` 会变，所以补丁约 1~2 MB，而完整安装包约 70 MB
+- 增量包会校验 SHA256、逐文件复核，并在替换前备份到临时目录，任何一个文件校验失败都会自动回滚
+- 如果当前版本没有对应补丁（例如跳过了中间版本），自动回退到完整安装包，对用户表现为「改为下载完整安装包」
 - 选择「稍后」会记住跳过的版本，自动检查不再弹窗；手动检查仍会提示
 - 本地构建如果还是 `OWNER` 占位，会显示「未配置更新仓库（RepositoryUrl）」
 - 自动更新针对安装版；便携版会提示从 Releases 手动下载新的 zip
+- 替换 `Program Files` 下的服务文件需要管理员权限，增量更新会弹出一次 UAC；取消提权则更新放弃
 
 ## 数据位置
 
