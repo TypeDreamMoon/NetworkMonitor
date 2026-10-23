@@ -79,9 +79,10 @@ public static class ClashConfigLocator
         yield return (Path.Combine(appData, "io.github.clash-verge-rev.clash-verge-rev", "clash-verge.yaml"), false);
 
         // The background service runs as LocalSystem, so its own %APPDATA% is the system profile.
-        // Also look at real users' profiles; every candidate is still verified against the live API.
-        if (!IsSystemAccount()) yield break;
-
+        // Always scan the interactive users' profiles as well: gating this on Environment.UserName
+        // left the service with only the secret-less default ports, which fails as soon as the
+        // proxy client enforces its external-controller secret. Every candidate is still verified
+        // against the live API, so extra paths are cheap.
         foreach (string user in EnumerateUserProfiles())
         {
             string userAppData = Path.Combine(user, "AppData", "Roaming");
@@ -93,11 +94,6 @@ public static class ClashConfigLocator
             yield return (Path.Combine(userAppData, "io.github.clash-verge-rev.clash-verge-rev", "clash-verge.yaml"), false);
         }
     }
-
-    private static bool IsSystemAccount() =>
-        string.Equals(Environment.UserName, "SYSTEM", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(Environment.UserName, "NETWORK SERVICE", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(Environment.UserName, "LOCAL SERVICE", StringComparison.OrdinalIgnoreCase);
 
     private static IEnumerable<string> EnumerateUserProfiles()
     {

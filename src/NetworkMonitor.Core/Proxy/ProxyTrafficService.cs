@@ -1,3 +1,4 @@
+using System.Net;
 using NetworkMonitor.Core.Configuration;
 using NetworkMonitor.Core.Monitoring;
 using NetworkMonitor.Core.Storage;
@@ -96,6 +97,12 @@ public sealed class ProxyTrafficService : IProxyTrafficSource
     private DateTime _lastDetect = DateTime.MinValue;
     private DateTime _lastIdlePost = DateTime.MinValue;
     private DateTime _lastProbeFailureLog = DateTime.MinValue;
+
+    /// <summary>Throttles the (verbose) per-candidate probe summary written to the log.</summary>
+    private string? _lastProbeSummary;
+
+    /// <summary>True when a probed controller answered 401: the secret is missing from the config.</summary>
+    private bool _needsSecret;
 
     private bool _connected;
     private string _status = "正在检测 FlClash…";
@@ -203,7 +210,9 @@ public sealed class ProxyTrafficService : IProxyTrafficSource
 
         if (endpoint is null)
         {
-            SetStatus(false, "未检测到可用的代理控制器（FlClash 需开启 External controller）", null);
+            SetStatus(false, _needsSecret
+                ? "未检测到可用的代理控制器（需要 secret：请在设置 → 流量来源 填写 FlClash 的 secret）"
+                : "未检测到可用的代理控制器（FlClash 需开启 External controller）", null);
 
             if (DateTime.UtcNow - _lastIdlePost > TimeSpan.FromSeconds(5))
             {
@@ -244,7 +253,10 @@ public sealed class ProxyTrafficService : IProxyTrafficSource
                 LogSink.Write($"proxy: 请求失败 {endpoint.BaseUri} {ex.Message}");
             }
 
-            SetStatus(false, "连接代理控制器失败", ex.Message);
+            SetStatus(false, "连接代理控制器失败",
+                ex is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized }
+                    ? "控制器需要 secret：请在设置 → 流量来源 填写 FlClash 的 secret"
+                    : ex.Message);
             PublishSnapshot();
             return;
         }
@@ -269,25 +281,57 @@ public sealed class ProxyTrafficService : IProxyTrafficSource
         if (!_settings.ClashAutoDetect) return null;
 
         if (_detected is not null) return _detected;
-        if (DateTime.UtcNow - _lastDetect < TimeSpan.FromSeconds(10)) return null;
 
-        _lastDetect = DateTime.UtcNow;
-
-        foreach (var candidate in ClashConfigLocator.DetectAll())
+        if (DateTime.UtcNow - _lastDetect >= TimeSpan.FromSeconds(10))
         {
-            if (await ProbeAsync(candidate, ct))
+            _lastDetect = DateTime.UtcNow;
+
+            var failures = new List<string>();
+            bool needsSecret = false;
+
+            foreach (var candidate in ClashConfigLocator.DetectAll())
             {
-                _detected = candidate;
-                LogSink.Write($"proxy: 可用控制器 {candidate.BaseUri}（{candidate.Source}）");
-                return candidate;
+                var probe = await ProbeAsync(candidate, ct);
+                if (probe.Ok)
+                {
+                    _detected = candidate;
+                    _needsSecret = false;
+                    _lastProbeSummary = null;
+                    LogSink.Write($"proxy: 可用控制器 {candidate.BaseUri}（{candidate.Source}）");
+                    return candidate;
+                }
+
+                if (probe.StatusCode == 401) needsSecret = true;
+                failures.Add($"{candidate.Source}={probe.Describe()}");
+            }
+
+            _needsSecret = needsSecret;
+            _detected = null;
+
+            // Detection retries every 10 s; only log when the outcome actually changes.
+            string summary = string.Join("；", failures);
+            if (!string.Equals(summary, _lastProbeSummary, StringComparison.Ordinal))
+            {
+                _lastProbeSummary = summary;
+                LogSink.Write($"proxy: 未找到可用控制器 {summary}");
             }
         }
 
-        _detected = null;
-        return null;
+        // Never drop a controller we already reached: keep polling it while re-detection backs off,
+        // otherwise a single transient failure silences proxy accounting until a full re-detect.
+        return _active;
     }
 
-    private async Task<bool> ProbeAsync(ClashEndpoint endpoint, CancellationToken ct)
+    private readonly record struct ProbeResult(bool Ok, int? StatusCode, string? Error)
+    {
+        public string Describe() => Ok
+            ? "200"
+            : StatusCode is int code
+                ? code.ToString()
+                : string.IsNullOrWhiteSpace(Error) ? "失败" : Error!;
+    }
+
+    private async Task<ProbeResult> ProbeAsync(ClashEndpoint endpoint, CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromMilliseconds(900));
@@ -296,11 +340,19 @@ public sealed class ProxyTrafficService : IProxyTrafficSource
         {
             _client.Configure(endpoint.Secret);
             var response = await _client.GetConnectionsAsync(endpoint.BaseUri, timeout.Token);
-            return response is not null;
+            return response is not null ? new ProbeResult(true, 200, null) : new ProbeResult(false, null, "空响应");
         }
-        catch
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            return false;
+            return new ProbeResult(false, null, "超时");
+        }
+        catch (HttpRequestException ex)
+        {
+            return new ProbeResult(false, (int?)ex.StatusCode, ex.StatusCode is null ? ex.Message : null);
+        }
+        catch (Exception ex)
+        {
+            return new ProbeResult(false, null, ex.Message);
         }
     }
 

@@ -71,6 +71,8 @@ public sealed class RemoteBackend : IMonitoringSource, IProxyTrafficSource, IPro
     private Task? _loop;
     private volatile bool _online;
     private int _intervalSeconds = 1;
+    private DateTime _lastProxyRepair = DateTime.MinValue;
+    private bool _repairingProxy;
 
     public RemoteBackend(AppSettings settings, Action<Action>? post = null)
     {
@@ -276,6 +278,8 @@ public sealed class RemoteBackend : IMonitoringSource, IProxyTrafficSource, IPro
 
         _online = true;
 
+        if (!live.ProxyConnected) TryRepairProxy();
+
         _post(() =>
         {
             SpeedTick?.Invoke(live.Speed);
@@ -283,6 +287,67 @@ public sealed class RemoteBackend : IMonitoringSource, IProxyTrafficSource, IPro
             SnapshotUpdated?.Invoke(live.ProxySnapshot);
             ProcessSnapshotUpdated?.Invoke(live.ProcessSnapshot ?? _processSnapshot);
         });
+    }
+
+    /// <summary>
+    /// The service may fail to read the proxy client's config (it runs as LocalSystem), leaving it with
+    /// the secret-less default ports. The UI runs as the interactive user, so it can read FlClash's
+    /// config and secret; when the service reports "not connected" it re-detects locally and pushes the
+    /// working controller + secret to the service (service-side only, the user's settings are untouched).
+    /// </summary>
+    private void TryRepairProxy()
+    {
+        if (!_settings.ClashAutoDetect || !string.IsNullOrWhiteSpace(_settings.ClashController)) return;
+        if (_repairingProxy) return;
+        if (DateTime.UtcNow - _lastProxyRepair < TimeSpan.FromSeconds(20)) return;
+
+        _lastProxyRepair = DateTime.UtcNow;
+        _repairingProxy = true;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var endpoint = await DetectLocalControllerAsync().ConfigureAwait(false);
+                if (endpoint is null) return;
+
+                LogSink.Write($"proxy: UI 从本地配置读到控制器 {endpoint.BaseUri}（{endpoint.Source}），推送给后台服务");
+                await SendAsync(
+                    HttpMethod.Post,
+                    "api/proxy/config",
+                    new ProxyConfigRequest(endpoint.BaseUri.Authority, endpoint.Secret)).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogSink.Write("proxy: UI 自动修复控制器失败", ex);
+            }
+            finally
+            {
+                _repairingProxy = false;
+            }
+        });
+    }
+
+    private static async Task<ClashEndpoint?> DetectLocalControllerAsync()
+    {
+        using var client = new ClashApiClient();
+
+        foreach (var candidate in ClashConfigLocator.DetectAll())
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(1200));
+            try
+            {
+                client.Configure(candidate.Secret);
+                var response = await client.GetConnectionsAsync(candidate.BaseUri, timeout.Token).ConfigureAwait(false);
+                if (response is not null) return candidate;
+            }
+            catch
+            {
+                // try the next candidate
+            }
+        }
+
+        return null;
     }
 
     private async Task RefreshUsageAsync(CancellationToken token = default)
