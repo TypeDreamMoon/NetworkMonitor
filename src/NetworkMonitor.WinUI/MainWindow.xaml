@@ -33,10 +33,14 @@
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
                         Margin="0,0,8,0" Spacing="2">
+                <Button Style="{StaticResource TitleIconButton}" Margin="0,0,6,0"
+                        ToolTipService.ToolTip="退出程序" Click="ExitApp_Click">
+                    <Image Source="ms-appx:///Assets/Icons/power_93A2B8.svg" Width="12" Height="12" />
+                </Button>
                 <Button Style="{StaticResource TitleIconButton}" ToolTipService.ToolTip="最小化" Click="Minimize_Click">
                     <Image Source="ms-appx:///Assets/Icons/minus_93A2B8.svg" Width="11" Height="11" />
                 </Button>
-                <Button Style="{StaticResource TitleIconButton}" ToolTipService.ToolTip="隐藏到托盘" Click="Hide_Click">
+                <Button Style="{StaticResource TitleIconButton}" ToolTipService.ToolTip="隐藏到托盘（右键托盘图标可退出）" Click="Hide_Click">
                     <Image Source="ms-appx:///Assets/Icons/close_93A2B8.svg" Width="10" Height="10" />
                 </Button>
             </StackPanel>
@@ -323,6 +327,9 @@
                                             <Button Content="刷新" Click="RefreshServiceStatus_Click" />
                                         </StackPanel>
                                     </StackPanel>
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="退出程序" Description="完全关闭界面与托盘图标；后台统计服务会继续运行">
+                                    <Button Content="退出" Click="ExitApp_Click" />
                                 </toolkit:SettingsCard>
                                 <Border Style="{StaticResource Card}">
                                     <StackPanel Spacing="8">

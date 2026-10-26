@@ -406,6 +406,21 @@ public sealed partial class MainWindow : Window
         sender.Hide();
     }
 
+    /// <summary>
+    /// Stops every timer and monitor subscription so the teardown that runs while the app exits
+    /// cannot reach back into a closed window.
+    /// </summary>
+    public void Detach()
+    {
+        _homeTrafficTimer.Stop();
+        _boundsTimer.Stop();
+
+        try { _monitor.SpeedTick -= HandleSpeed; } catch { }
+        try { _monitor.UsageRefreshed -= HandleUsage; } catch { }
+        try { _monitor.InterfacesChanged -= HandleInterfacesChanged; } catch { }
+        try { App.Instance.ProxyTraffic.SnapshotUpdated -= OnProxySnapshot; } catch { }
+    }
+
     // ---------- live speed ----------
 
     private void HandleSpeed(SpeedSample sample)
@@ -1174,6 +1189,8 @@ public sealed partial class MainWindow : Window
     }
 
     private void Hide_Click(object sender, RoutedEventArgs e) => AppWindow.Hide();
+
+    private void ExitApp_Click(object sender, RoutedEventArgs e) => App.Instance.ExitApplication();
 
     // ---------- tray menu ----------
 

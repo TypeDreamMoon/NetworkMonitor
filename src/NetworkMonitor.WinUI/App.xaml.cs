@@ -263,16 +263,49 @@ public partial class App : Application
 
     public void ExitApplication()
     {
-        if (IsExiting) return;
-        IsExiting = true;
+        if (IsExiting)
+        {
+            // A second request means the first teardown is wedged (or the user clicked again
+            // because nothing seemed to happen). Do not keep waiting on it.
+            Log.Write("收到重复的退出请求，强制结束进程");
+            Environment.Exit(0);
+            return;
+        }
 
-        try { _backend?.Dispose(); } catch (Exception ex) { Log.Write("退出时断开后台服务失败", ex); }
+        IsExiting = true;
+        Log.Write("开始退出程序");
+
+        // Safety net first: a wedged WinUI / tray / HTTP teardown used to leave a window-less
+        // process running forever (which looked like "the app cannot be quit"). Whatever the
+        // teardown below does, the process is gone a few seconds later.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            Log.Write("退出超时，强制结束进程");
+            Environment.Exit(0);
+        });
+
         try { Settings.Save(); } catch (Exception ex) { Log.Write("退出时保存设置失败", ex); }
+
+        // Stop touching the UI before the windows go away, then let the HTTP polling loop wind
+        // down on its own: it can take a couple of seconds to observe cancellation, and the exit
+        // must not wait for it on the UI thread.
+        try { _main?.Detach(); } catch (Exception ex) { Log.Write("退出时停止界面订阅失败", ex); }
+        RemoteBackend? backend = _backend;
+        _backend = null;
+        if (backend is not null)
+        {
+            backend.SpeedTick -= OnSpeed;
+            _ = Task.Run(() =>
+            {
+                try { backend.Dispose(); } catch (Exception ex) { Log.Write("退出时断开后台服务失败", ex); }
+            });
+        }
+
         try { _taskbar?.Dispose(); } catch (Exception ex) { Log.Write("退出时关闭任务栏条失败", ex); }
         try { _floating?.Close(); } catch (Exception ex) { Log.Write("退出时关闭悬浮窗失败", ex); }
         try { _main?.Close(); } catch (Exception ex) { Log.Write("退出时关闭主窗口失败", ex); }
 
-        _backend = null;
         _taskbar = null;
         _floating = null;
         _main = null;
@@ -286,14 +319,7 @@ public partial class App : Application
         try { _mutex?.Dispose(); } catch { }
         _mutex = null;
 
-        try { Exit(); } catch { }
-
-        // Last-resort guard: some WinUI/tray teardown paths can leave the process alive.
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(TimeSpan.FromSeconds(2));
-            Environment.Exit(0);
-        });
+        try { Exit(); } catch (Exception ex) { Log.Write("Application.Exit 调用失败", ex); }
     }
 
     /// <summary>

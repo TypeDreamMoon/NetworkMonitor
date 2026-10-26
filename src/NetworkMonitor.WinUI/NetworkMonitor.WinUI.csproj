@@ -20,7 +20,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <Version>1.7.1</Version>
+    <Version>1.7.2</Version>
     <RepositoryUrl Condition="'$(RepositoryUrl)' == ''">https://github.com/TypeDreamMoon/NetworkMonitor</RepositoryUrl>
     <Product>NetworkMonitor</Product>
     <AssemblyTitle>NetworkMonitor 网速与流量监控</AssemblyTitle>
